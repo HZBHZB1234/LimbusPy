@@ -29,10 +29,12 @@
 | `LimbusPy.Bridge.Core`（C#，**无 Unity 依赖**） | ✅ 帧编解码 / msgpack / 协议 / 句柄表 / PeerConnection / 传输 |
 | 反射层（`Core/Reflect`） | ✅ 类型索引 / 值封送 / 重载解析 / `Describe` |
 | Python `limbuspy.runtime` | ✅ codec / framing / protocol / transport / client / 错误模型 |
-| 跨语言一致性测试 `tools/conformance.py` | ✅ **144 项全过**（含反射层端到端、真实管道、并发乱序、句柄 arena、超时、协议不匹配） |
-| Python 单测 | ✅ 180 项 |
+| 跨语言一致性测试 `tools/conformance.py` | ✅ **168 项全过**（反射层、真实管道、并发乱序、句柄 arena、阻塞通道、**Harmony 补丁表**、doctor、协议不匹配、真实 bootstrap 进程 ↔ 内核） |
+| Python 单测 | ✅ 185 项 |
 | BepInEx 内核插件（管道/握手/主线程 pump/IL2CPP 句柄/supervisor） | ✅ 编译通过（0 warning） |
-| `limbuspy.bootstrap` / `limbuspy.mod`（自举 / Mod 基类 / 钩子 / 热重载） | ✅ 20 项 mod 层测试（含热重载代际、状态保持、失败隔离） |
+| `limbuspy.bootstrap` / `limbuspy.mod`（自举 / Mod 基类 / 钩子 / 热重载） | ✅ 25 项 mod 层测试（含热重载代际、状态保持、失败隔离、补丁摘除） |
+| 索引生成 + `limbuspy.il2cpp` + `devkit.doctor` + CLI | ✅ 真实 dump 26 126 类型 / 6 s；`python -m limbuspy doctor` |
+| 表驱动 Harmony 补丁（`LimbusPy.Bridge.Harmony` + `Mod.patch`） | ✅ prefix/postfix、fail-open、按 binding 摘除、重载自动摘 |
 | `limbuspy.game.*`（battle / statics / assets / locale / content） | ⏳ |
 | `limbuspy.modular`（单向兼容层） | ⏳ |
 

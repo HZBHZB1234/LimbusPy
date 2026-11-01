@@ -38,6 +38,8 @@ class Mod:
         self.state: Dict[str, Any] = {}
         self.bridge: Optional[Bridge] = None
         self.logger = None
+        #: Patch ids this mod installed; removed automatically before a reload.
+        self._patches: List[str] = []
 
     # -- lifecycle ----------------------------------------------------------------------
 
@@ -55,6 +57,47 @@ class Mod:
         """Restores what ``on_save`` returned."""
 
     # -- helpers ------------------------------------------------------------------------
+
+    # -- harmony patches ----------------------------------------------------------------
+
+    def patch(self, owner: str, method: str, fn: Optional[str] = None, kind: str = "postfix",
+              sig: Optional[list] = None, fallback: Any = None) -> str:
+        """Patches ``owner.method`` and dispatches to an exposed function of this mod.
+
+        ``fn`` defaults to ``"<mod>.<method>"``; a bare name is prefixed with the mod name. The id
+        is remembered so a hot reload can remove the patch before the old code disappears.
+        """
+        if self.bridge is None:
+            raise RuntimeError("mod %r is not attached to a bridge" % (self.name or "?"))
+        target_fn = fn or method
+        if "." not in target_fn:
+            target_fn = "%s.%s" % (self.name or "mod", target_fn)
+        binding = self.bridge.patch(owner, method, target_fn, kind=kind, sig=sig, fallback=fallback)
+        patch_id = binding.get("id") if isinstance(binding, dict) else None
+        if patch_id:
+            self._patches.append(patch_id)
+        return patch_id
+
+    def unpatch(self, patch_id: str) -> bool:
+        if self.bridge is None or not patch_id:
+            return False
+        try:
+            removed = self.bridge.unpatch(patch_id)
+        finally:
+            if patch_id in self._patches:
+                self._patches.remove(patch_id)
+        return removed
+
+    def unpatch_all(self) -> int:
+        """Removes every patch this mod installed. Called by the runtime before a reload."""
+        removed = 0
+        for patch_id in list(self._patches):
+            try:
+                if self.unpatch(patch_id):
+                    removed += 1
+            except Exception:  # noqa: BLE001 - best effort during teardown
+                self._patches.remove(patch_id) if patch_id in self._patches else None
+        return removed
 
     def log(self, message: str) -> None:
         if self.logger is not None:

@@ -10,6 +10,7 @@ using LimbusPy.Bridge.Core.Framing;
 using LimbusPy.Bridge.Core.Protocol;
 using LimbusPy.Bridge.Core.Reflect;
 using LimbusPy.Bridge.Core.Transport;
+using LimbusPy.Bridge.Patching;
 
 namespace LimbusPy.Bridge.Runtime
 {
@@ -29,7 +30,11 @@ namespace LimbusPy.Bridge.Runtime
         private readonly Il2CppRefStore _store;
         private readonly InteropTypeIndex _types;
         private readonly GlobalRegistry _globals;
+        private readonly HarmonyPatchHub _patches;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+
+        /// <summary>Re-entry guard for kernel->Python->kernel->... cycles (protocol §6.2).</summary>
+        [ThreadStatic] private static int _syncDepth;
 
         private PeerConnection _peer;
         private string _pipePrefix;
@@ -46,7 +51,8 @@ namespace LimbusPy.Bridge.Runtime
             ReflectionInvoker invoker,
             Il2CppRefStore store,
             InteropTypeIndex types,
-            GlobalRegistry globals)
+            GlobalRegistry globals,
+            HarmonyPatchHub patches)
         {
             _settings = settings;
             _log = log;
@@ -56,6 +62,8 @@ namespace LimbusPy.Bridge.Runtime
             _store = store;
             _types = types;
             _globals = globals;
+            _patches = patches;
+            if (_patches != null) _patches.Dispatch = DispatchToPython;
         }
 
         public Counters Counters { get; } = new Counters();
@@ -337,11 +345,29 @@ namespace LimbusPy.Bridge.Runtime
                     return Lpcp.OkResult(id, BuildStats());
 
                 case MsgType.PatchAdd:
+                {
+                    if (_patches == null) throw LpcpFault.Unsupported("patch hub is not available");
+                    var binding = _patches.Apply(PatchSpec.FromWire(request));
+                    Counters.Increment("patch.add");
+                    Trace.Add("patched " + binding.Describe());
+                    _log("patched " + binding.Describe());
+                    return Lpcp.OkResult(id, Lpcp.Map(
+                        "id", binding.Id,
+                        "target", PatchMethodResolver.Describe(binding.Method),
+                        "kind", binding.Spec.Kind == PatchKind.Prefix ? "prefix" : "postfix",
+                        "fn", binding.Spec.Fn));
+                }
+
                 case MsgType.PatchDel:
-                    // Implemented by the PatchHub milestone; fail loudly instead of pretending.
-                    throw LpcpFault.Unsupported(
-                        "harmony patching from Python is not implemented in this build",
-                        Lpcp.Map("milestone", "patch.table"));
+                {
+                    if (_patches == null) throw LpcpFault.Unsupported("patch hub is not available");
+                    var patchId = Lpcp.GetString(request, "patch") ?? Lpcp.GetString(request, "id_name");
+                    var removed = _patches.Remove(patchId);
+                    if (!removed) throw LpcpFault.NotFound("no patch with id '" + patchId + "'");
+                    Counters.Increment("patch.del");
+                    Trace.Add("unpatched " + patchId);
+                    return Lpcp.OkResult(id, true);
+                }
 
                 case MsgType.RegistryAdd:
                 case MsgType.RegistryDel:
@@ -355,6 +381,94 @@ namespace LimbusPy.Bridge.Runtime
                 default:
                     throw LpcpFault.Unsupported("unhandled message type " + type);
             }
+        }
+
+        /// <summary>
+        /// One patch dispatch: ask Python for a decision and wait for it.
+        ///
+        /// This runs on the game's main thread (Harmony patch), so it drains queued main-thread
+        /// work while waiting. Re-entry is refused: a Python hook that triggers another patched
+        /// method gets its default instead of a deadlock. Unknown/timeout keeps the original
+        /// behaviour (fail-open).
+        /// </summary>
+        private object DispatchToPython(PatchCall call)
+        {
+            var peer = _peer;
+            if (peer == null || peer.IsClosed || call == null) return null;
+            if (_syncDepth >= 1)
+            {
+                Counters.Increment("patch.reentry_refused");
+                call.Failure = "nested patch dispatch refused";
+                return null;
+            }
+
+            var binding = call.Binding;
+            var context = Lpcp.Map(
+                "patch", binding.Id,
+                "kind", binding.Spec.Kind == PatchKind.Prefix ? "prefix" : "postfix",
+                "target", PatchMethodResolver.Describe(binding.Method),
+                "instance", SafeWire(call.Instance),
+                "args", SafeWireArray(call.Args),
+                "result", SafeWire(call.Result));
+
+            var timeoutMs = _patches == null ? 20 : Math.Max(1, _patches.TimeoutMs);
+            _syncDepth++;
+            try
+            {
+                var requestId = peer.RequestStart(MsgType.SyncCall, Lpcp.Map(
+                    "fn", binding.Spec.Fn,
+                    "ctx", context,
+                    "deadline_ms", (long)timeoutMs));
+                Counters.Increment("patch.dispatch");
+                var completed = peer.TryWaitResult(requestId, TimeSpan.FromMilliseconds(timeoutMs),
+                    () => _dispatcher.Drain(32, TimeSpan.FromMilliseconds(2)), out var reply);
+                if (!completed)
+                {
+                    Counters.Increment("patch.timeout");
+                    call.Failure = "timeout";
+                    return binding.Spec.HasFallback ? binding.Spec.Fallback : null;
+                }
+
+                if (!Lpcp.GetBool(reply, "ok"))
+                {
+                    Counters.Increment("patch.error");
+                    var error = Lpcp.GetMap(reply, "err");
+                    call.Failure = Lpcp.GetString(error, "msg", "python error");
+                    return binding.Spec.HasFallback ? binding.Spec.Fallback : null;
+                }
+
+                return reply.TryGetValue("value", out var value) ? value : null;
+            }
+            catch (Exception ex)
+            {
+                Counters.Increment("patch.error");
+                call.Failure = ex.GetType().Name + ": " + ex.Message;
+                return binding.Spec.HasFallback ? binding.Spec.Fallback : null;
+            }
+            finally
+            {
+                _syncDepth--;
+            }
+        }
+
+        private object SafeWire(object value)
+        {
+            try
+            {
+                return value == null ? null : _marshaller.ToWire(value);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private object[] SafeWireArray(object[] values)
+        {
+            if (values == null) return Array.Empty<object>();
+            var result = new object[values.Length];
+            for (var index = 0; index < values.Length; index++) result[index] = SafeWire(values[index]);
+            return result;
         }
 
         private static void ReplyLater(PeerConnection peer, MsgType type, Dictionary<string, object> payload)
@@ -395,6 +509,7 @@ namespace LimbusPy.Bridge.Runtime
                 "globals", _globals.Names,
                 "handles", HandlesAsMap(),
                 "dispatcher", _dispatcher.Stats(),
+                "patches", _patches == null ? Lpcp.Map("patches", 0L) : _patches.Stats(),
                 "counters", Counters.Snapshot());
 
             var trace = Trace.Snapshot();
@@ -407,6 +522,7 @@ namespace LimbusPy.Bridge.Runtime
                 "counters", Counters.Snapshot(),
                 "handles", HandlesAsMap(),
                 "dispatcher", _dispatcher.Stats(),
+                "patches", _patches == null ? Lpcp.Map("patches", 0L) : _patches.Stats(),
                 "connected", Connected);
 
         private Dictionary<string, object> HandlesAsMap()

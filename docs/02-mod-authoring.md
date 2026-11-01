@@ -155,6 +155,29 @@ def damage_multiplier(self, ctx):
 
 ---
 
+## 6.5 Harmony 补丁（原生钩子的最后一公里）
+
+时机系统覆盖不到的方法，可以直接打补丁：
+
+```python
+from limbuspy.mod import Mod, expose
+
+class HealTweak(Mod):
+    def on_load(self):
+        # 参数类型用于重载消歧；名字不唯一时内核拒绝猜，而不是打错方法
+        self.patch("BattleUnitModel", "Heal", "on_heal", kind="postfix", sig=["int"])
+
+    @expose("on_heal")
+    def on_heal(self, ctx):
+        return (ctx.event.get("result") or 0) + 5     # 返回值 +5
+```
+
+- `kind="postfix"` 改写返回值；`kind="prefix"` 可跳过原方法（`return {"skip": True}`）或替换入参（`return {"args": [...]}`）。
+- **fail-open**：钩子抛错/超时 → 游戏按原逻辑走，只记一次失败。不卡帧、不崩。
+- **热重载安全**：`on_load` 里装的补丁在重载前会被 `unpatch_all()` 自动摘掉，旧代码不会在重载后被调用（`self._patches` 由基类维护）。
+- 能写回的类型：`void/bool/int/long/float/double/string/引用类型`；枚举/结构体只能观测。
+- 优先用 `@hook`（时机系统，批量异步）；补丁是同步阻塞的，只用于时机系统没有的缝。
+
 ## 7. 调试
 
 ```powershell

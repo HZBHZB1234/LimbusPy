@@ -65,8 +65,8 @@ length = 1 + payload_len        （包含 type 字节本身）
 | `0x06` | `ACT` | Py→C# | `seq, actions[]{event, effects[], retval?}` |
 | `0x07` | `SYNCALL` | C#→Py | `id, fn, ctx, deadline_ms` |
 | `0x08` | `SYNCRESULT` | Py→C# | `id, ok, value` \| `err` |
-| `0x09` | `PATCH_ADD` | Py→C# | `id, spec{class, method, param_types[], kind, hook}` |
-| `0x0A` | `PATCH_DEL` | Py→C# | `id, patch` |
+| `0x09` | `PATCH_ADD` | Py→C# | `owner, method, kind∈{prefix,postfix}, fn, sig[], fallback?` → 回 `{id, target, kind, fn}` |
+| `0x0A` | `PATCH_DEL` | Py→C# | `patch`（binding id） |
 | `0x0B` | `REG` | Py→C# | `id, table∈{consequence,acquirer,lua,timing}, name, fn` |
 | `0x0C` | `UNREG` | Py→C# | `id, table, name` |
 | `0x0D` | `RELOAD` | C#→Py | `gen, phase∈{quiesce,resume}, mods[]` |
@@ -177,6 +177,27 @@ Py: ACT {seq:42, actions:[
 - 嵌套（Python 在 hook 内又触发需要 C# 同步调用的游戏方法）→ **立即失败**，直接返回 fallback，避免死锁。
 
 **设计取向**：`SYNCALL` 是逃生口，不是常规路径。绝大多数逻辑应走 `EVBATCH` + effect（原生钩子 + 效果队列）。这与"鼓励原生钩子、避免 Modular 指令串开销"一致。
+
+## 6.3 补丁派发（`PATCH_ADD` → `SYNCALL`）
+
+`PATCH_ADD` 让 Python 给**任意方法**装 Harmony 补丁，而不需要重新编译 C#：
+
+```jsonc
+{"id": 7, "owner": "BattleUnitModel", "method": "Heal", "kind": "postfix",
+ "fn": "mymod.on_heal", "sig": ["int"]}     // sig 用于重载消歧；不唯一时内核拒绝猜
+```
+
+补丁触发时，内核以 `SYNCALL` 调 `fn`，`ctx` 形如：
+
+```jsonc
+{"patch": "BattleUnitModel.Heal#1", "kind": "postfix", "target": "int Heal(int)",
+ "instance": {"t":"unit","h":11}, "args": [10], "result": 60}
+```
+
+- **postfix**：Python 返回值替换方法返回值（可写回：`void/bool/int/long/float/double/string/引用类型`；枚举/结构体只能观测）。
+- **prefix**：返回 `null`/`true` 继续；`{"skip": true}` 跳过原方法；`{"args": [...]}` 替换入参。
+- **fail-open（硬规则）**：Python 超时、抛错、内核重入被拒 → 保留原行为（prefix 继续、postfix 原结果），只计数不外抛。游戏不会因为脚本补丁而崩或卡。
+- 同一方法上的多个 binding 共享一个 Harmony 补丁；`PATCH_DEL` 只摘 binding，**不 unpatch 方法**——避免连带摘掉别人的补丁。
 
 ## 7. 错误模型
 

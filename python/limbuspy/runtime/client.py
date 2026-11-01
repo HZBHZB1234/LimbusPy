@@ -297,6 +297,43 @@ class Bridge:
         )
         return result.get("value")
 
+    # -- harmony patches ---------------------------------------------------------------
+
+    def patch(self, owner: str, method: str, fn: str, kind: str = "postfix",
+              sig: Optional[List[str]] = None, fallback: Any = None,
+              timeout: float = DEFAULT_TIMEOUT) -> dict:
+        """Asks the kernel to patch ``owner.method`` and dispatch to ``fn`` on every call.
+
+        ``sig`` is the parameter type list used to disambiguate overloads (``["int"]``); pass it
+        whenever the name is overloaded - the kernel refuses to guess.
+
+        Returns the binding (``id``, ``target``, ``kind``, ``fn``). Keep the ``id``: that is how
+        you remove the patch again.
+        """
+        payload: Dict[str, Any] = {
+            "owner": owner,
+            "method": method,
+            "kind": kind,
+            "fn": fn,
+            "sig": list(sig or []),
+        }
+        if fallback is not None:
+            payload["fallback"] = fallback
+        result = self.request(MsgType.PATCH_ADD, payload, timeout=timeout)
+        return dict(result.get("value") or {})
+
+    def unpatch(self, patch_id: str, timeout: float = DEFAULT_TIMEOUT) -> bool:
+        result = self.request(MsgType.PATCH_DEL, {"patch": patch_id}, timeout=timeout)
+        return bool(result.get("value"))
+
+    def patches(self, timeout: float = DEFAULT_TIMEOUT) -> List[dict]:
+        """Current bindings, read from the kernel's DOCTOR report."""
+        result = self.request(MsgType.DOCTOR, {}, timeout=timeout)
+        doctor = result.get("value") or {}
+        stats = doctor.get("patches") or {}
+        bindings = stats.get("bindings") or []
+        return [binding for binding in bindings if isinstance(binding, dict)]
+
     # -- receiving ---------------------------------------------------------------------
 
     def on_request(self, type_: int, handler: Callable[[dict], Any]) -> None:

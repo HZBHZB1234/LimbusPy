@@ -162,6 +162,12 @@ class ModRuntime:
                 continue
             self._save_state(name, loaded)
             try:
+                removed = loaded.instance.unpatch_all()
+                if removed:
+                    self.log("unpatched %d route(s) from %s" % (removed, name))
+            except Exception as exc:  # noqa: BLE001
+                self._log_error("unpatch failed for %s: %s" % (name, describe_failure(exc)))
+            try:
                 loaded.instance.on_unload()
             except Exception as exc:  # noqa: BLE001
                 self._log_error("on_unload failed for %s: %s" % (name, describe_failure(exc)))
@@ -316,6 +322,12 @@ class ModRuntime:
             loaded = self.mods.get(name)
             if loaded is not None:
                 self._save_state(name, loaded)
+                try:
+                    removed = loaded.instance.unpatch_all()
+                    if removed:
+                        self.log("unpatched %d route(s) from %s" % (removed, name))
+                except Exception as exc:  # noqa: BLE001
+                    self._log_error("unpatch failed for %s: %s" % (name, describe_failure(exc)))
                 try:
                     loaded.instance.on_unload()
                 except Exception as exc:  # noqa: BLE001

@@ -7,6 +7,7 @@ using Il2CppInterop.Runtime.Injection;
 using LimbusPy.Bridge.Core.Bridge;
 using LimbusPy.Bridge.Core.Protocol;
 using LimbusPy.Bridge.Core.Reflect;
+using LimbusPy.Bridge.Patching;
 using LimbusPy.Bridge.Runtime;
 using UnityEngine;
 
@@ -43,6 +44,7 @@ namespace LimbusPy.Bridge
         internal static CallMarshaller Marshaller { get; private set; }
         internal static ReflectionInvoker Invoker { get; private set; }
         internal static InteropTypeIndex Types { get; private set; }
+        internal static HarmonyPatchHub Patches { get; private set; }
         internal static GlobalRegistry Globals { get; private set; }
 
         public override void Load()
@@ -86,12 +88,18 @@ namespace LimbusPy.Bridge
             Globals = new GlobalRegistry();
             Invoker = new ReflectionInvoker(Types, Globals, Marshaller, EnsureMainThread);
 
-            // 4. Bridge host.
-            Host = new KernelHost(Settings, LogLine, Dispatcher, Marshaller, Invoker, Store, Types, Globals);
+            // 4. Patch hub (table-driven Harmony patching driven by Python).
+            Patches = new HarmonyPatchHub("LimbusPy.PatchHub", Types, Marshaller, EnsureMainThread)
+            {
+                TimeoutMs = Math.Max(1, Settings.SyncCallTimeoutMs.Value),
+            };
+
+            // 5. Bridge host.
+            Host = new KernelHost(Settings, LogLine, Dispatcher, Marshaller, Invoker, Store, Types, Globals, Patches);
             Host.SetGameInfo(SafeApplicationVersion(), SafeUnityVersion());
             Host.Start();
 
-            // 5. Sweep dead/expired handles periodically (every ~2 s at 60 fps).
+            // 6. Sweep dead/expired handles periodically (every ~2 s at 60 fps).
             var frame = 0;
             PumpBehaviour.OnTick = () =>
             {
@@ -108,7 +116,7 @@ namespace LimbusPy.Bridge
                 }
             };
 
-            // 6. Python process.
+            // 7. Python process.
             Supervisor = new PythonSupervisor(Settings, LogLine, Host.PipePrefix);
             Supervisor.Start();
 
@@ -128,6 +136,7 @@ namespace LimbusPy.Bridge
                 Log?.LogInfo("shutting down: " + reason);
                 Supervisor?.Stop();
                 Host?.Stop();
+                Patches?.UnpatchAll();
                 PumpBehaviour.OnTick = null;
             }
             catch (Exception ex)

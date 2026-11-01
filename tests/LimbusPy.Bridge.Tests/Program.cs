@@ -22,7 +22,32 @@ namespace LimbusPy.Bridge.Tests
 
         private static int Main(string[] args)
         {
+            // HarmonyX (0Harmony 2.10.2) references MonoMod.RuntimeDetour 22.3.23.4 while BepInEx
+            // 6.0.755 ships 22.7.31.1. In-game BepInEx's own resolution hides that; a standalone
+            // harness has to roll the version forward itself, or Harmony's static initialiser
+            // throws before any patch is applied.
+            AppDomain.CurrentDomain.AssemblyResolve += ResolveFromBaseDirectory;
+            System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += (_, name) => LoadSibling(name.Name);
+
             return MainAsync(args).GetAwaiter().GetResult();
+        }
+
+        private static System.Reflection.Assembly ResolveFromBaseDirectory(object sender, ResolveEventArgs args)
+            => LoadSibling(new System.Reflection.AssemblyName(args.Name).Name);
+
+        private static System.Reflection.Assembly LoadSibling(string simpleName)
+        {
+            if (string.IsNullOrEmpty(simpleName)) return null;
+            var path = Path.Combine(AppContext.BaseDirectory, simpleName + ".dll");
+            if (!File.Exists(path)) return null;
+            try
+            {
+                return System.Reflection.Assembly.LoadFrom(path);
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static async Task<int> MainAsync(string[] args)

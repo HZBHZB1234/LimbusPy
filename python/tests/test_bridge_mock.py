@@ -243,10 +243,10 @@ def test_sync_call_without_handler_is_unsupported(echo_kernel):
 
 
 def test_unknown_inbound_request_is_answered(echo_kernel):
-    # PATCH_ADD is a request message; the mock kernel has no handler for it, so the call must
-    # come back as a structured "unsupported" error instead of hanging.
+    # STATE is a request message; the mock kernel has no handler for it, so the call must come
+    # back as a structured "unsupported" error instead of hanging.
     with pytest.raises(BridgeError) as info:
-        echo_kernel.bridge.request(MsgType.PATCH_ADD, {"spec": {}}, timeout=2.0)
+        echo_kernel.bridge.request(MsgType.STATE, {"mod": "x", "op": "save"}, timeout=2.0)
     assert info.value.code == protocol.ErrorCode.UNSUPPORTED
 
 

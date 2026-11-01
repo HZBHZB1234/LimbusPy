@@ -262,10 +262,18 @@ def run_live(checker: Checker) -> None:
     def on_sync(payload):
         seen["sync"].append(payload)
         fn = payload.get("fn") or ""
+        context = payload.get("ctx") or {}
         if fn == "mymod.blocked":
             # Make the kernel's blocking lane actually block so its nested pump has to run.
             time.sleep(0.03)
-        return {"echoed": fn, "timing": (payload.get("ctx") or {}).get("timing")}
+        # Harmony patch dispatch (see run_live's patch section).
+        if fn == "mymod.patch_heal":
+            return (context.get("result") or 0) + 1000
+        if fn == "mymod.patch_skip":
+            return {"skip": True}
+        if fn == "mymod.patch_boom":
+            raise RuntimeError("patch hook exploded on purpose")
+        return {"echoed": fn, "timing": context.get("timing")}
 
     bridge = None
     try:
@@ -383,6 +391,38 @@ def run_live(checker: Checker) -> None:
         checker.eq("reflect: describe lists Hp", "Hp" in [m.get("n") for m in described.get("members") or []], True)
         types = bridge.call("k", "reflect.types", "TestUnit")
         checker.eq("reflect: type index", "LimbusPy.Bridge.Tests.Fixtures.TestUnit" in (types.get("types") or []), True)
+
+        # -- harmony patch table ------------------------------------------------------
+        target_type = "LimbusPy.Bridge.Tests.Fixtures.TestUnit"
+        patch_unit = bridge.call("k", "reflect.new_unit", "Patchy", 50)
+
+        binding = bridge.patch(target_type, "Heal", "mymod.patch_heal", kind="postfix", sig=["int"])
+        checker.eq("patch: binding kind", binding.get("kind"), "postfix")
+        checker.eq("patch: binding names the resolved method", "Heal" in str(binding.get("target")), True)
+
+        healed = bridge.call("k", "patch.trigger", patch_unit, "Heal", [10])
+        checker.eq("patch: postfix rewrote the result", healed.get("value"), 1060)
+        checker.eq("patch: dispatch reached python", healed.get("ok"), True)
+
+        listed = bridge.patches()
+        checker.eq("patch: visible through doctor", any(p.get("id") == binding.get("id") for p in listed), True)
+
+        boom = bridge.patch(target_type, "CountByKeyword", "mymod.patch_boom", sig=["string"])
+        counted = bridge.call("k", "patch.trigger", patch_unit, "CountByKeyword", ["sinking"])
+        checker.eq("patch: failing hook fails open", counted.get("value"), 0)
+        checker.eq("patch: failing hook still returns", counted.get("ok"), True)
+        bridge.unpatch(boom["id"])
+
+        skip = bridge.patch(target_type, "Explode", "mymod.patch_skip", kind="prefix")
+        exploded = bridge.call("k", "patch.trigger", patch_unit, "Explode", [])
+        checker.eq("patch: prefix skip suppressed the exception", exploded.get("ok"), True)
+        bridge.unpatch(skip["id"])
+
+        bridge.unpatch(binding["id"])
+        plain_unit = bridge.call("k", "reflect.new_unit", "Plain", 10)
+        plain = bridge.call("k", "patch.trigger", plain_unit, "Heal", [5])
+        checker.eq("patch: unpatch restores the original", plain.get("value"), 15)
+        checker.eq("patch: table is empty again", len(bridge.patches()), 0)
 
         # -- concurrency / out-of-order results ---------------------------------------
         results = {}

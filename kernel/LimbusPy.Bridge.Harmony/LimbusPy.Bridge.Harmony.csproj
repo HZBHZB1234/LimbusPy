@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Table-driven Harmony patching.
+    Split out of the Unity plugin so the conformance harness can apply real Harmony patches to
+    plain managed methods and prove the whole pipeline (wire -> resolve -> patch -> Python ->
+    write-back) without the game.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>10</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>LimbusPy.Bridge.Harmony</AssemblyName>
+    <RootNamespace>LimbusPy.Bridge.Patching</RootNamespace>
+    <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Limbus Company</GameDir>
+    <HarmonyPath>$(GameDir)\BepInEx\core\0Harmony.dll</HarmonyPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LimbusPy.Bridge.Core\LimbusPy.Bridge.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Compile-time only: at runtime 0Harmony + MonoMod come from BepInEx/core. -->
+    <Reference Include="0Harmony">
+      <HintPath>$(HarmonyPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MonoMod.RuntimeDetour">
+      <HintPath>$(GameDir)\BepInEx\core\MonoMod.RuntimeDetour.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MonoMod.Utils">
+      <HintPath>$(GameDir)\BepInEx\core\MonoMod.Utils.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

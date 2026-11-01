@@ -9,6 +9,7 @@ using LimbusPy.Bridge.Core.Diagnostics;
 using LimbusPy.Bridge.Core.Framing;
 using LimbusPy.Bridge.Core.Protocol;
 using LimbusPy.Bridge.Core.Reflect;
+using LimbusPy.Bridge.Patching;
 using LimbusPy.Bridge.Tests.Fixtures;
 
 namespace LimbusPy.Bridge.Tests
@@ -26,6 +27,7 @@ namespace LimbusPy.Bridge.Tests
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly CallMarshaller _marshaller;
         private readonly ReflectionInvoker _invoker;
+        private HarmonyPatchHub _patches;
 
         public TestKernel()
         {
@@ -36,6 +38,8 @@ namespace LimbusPy.Bridge.Tests
                 _marshaller);
 
             _methods = BuildMethods();
+            _patches = new HarmonyPatchHub("LimbusPy.Tests.PatchHub", new AssemblyTypeIndex("harness", typeof(TestUnit).Assembly), _marshaller);
+            _patches.Dispatch = DispatchToPython;
         }
 
         public Counters Counters { get; } = new Counters();
@@ -128,10 +132,47 @@ namespace LimbusPy.Bridge.Tests
                         "dispatcher", Lpcp.Map(
                             "posted", 0L, "executed", 0L, "faulted", 0L, "pending", 0L,
                             "nested_pumps", 0L, "nested_refused", 0L, "owner_thread", 1L),
+                        "patches", _patches.Stats(),
                         "counters", Counters.Snapshot(),
                         "trace", new object[0]);
                     await peer.SendAsync(MsgType.CallResult, Lpcp.OkResult(doctorId, doctor), cancellationToken)
                         .ConfigureAwait(false);
+                    return;
+                }
+
+                case MsgType.PatchAdd:
+                {
+                    var request = PeerConnection.DecodePayload(frame);
+                    var requestId = Lpcp.GetLong(request, "id", -1);
+                    try
+                    {
+                        var binding = _patches.Apply(PatchSpec.FromWire(request));
+                        Counters.Increment("patch.add");
+                        await peer.SendAsync(MsgType.CallResult, Lpcp.OkResult(requestId, Lpcp.Map(
+                            "id", binding.Id,
+                            "target", PatchMethodResolver.Describe(binding.Method),
+                            "kind", binding.Spec.Kind == PatchKind.Prefix ? "prefix" : "postfix",
+                            "fn", binding.Spec.Fn)), cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (LpcpFault fault)
+                    {
+                        await peer.SendAsync(MsgType.CallResult, Lpcp.ErrorResult(requestId, fault.ToError()),
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                    return;
+                }
+
+                case MsgType.PatchDel:
+                {
+                    var request = PeerConnection.DecodePayload(frame);
+                    var requestId = Lpcp.GetLong(request, "id", -1);
+                    var patchId = Lpcp.GetString(request, "patch");
+                    var removed = _patches.Remove(patchId);
+                    Counters.Increment("patch.del");
+                    var reply = removed
+                        ? Lpcp.OkResult(requestId, true)
+                        : Lpcp.ErrorResult(requestId, Lpcp.Error(ErrorCode.NotFound, "no patch with id '" + patchId + "'"));
+                    await peer.SendAsync(MsgType.CallResult, reply, cancellationToken).ConfigureAwait(false);
                     return;
                 }
 
@@ -184,6 +225,37 @@ namespace LimbusPy.Bridge.Tests
                 {
                     await Task.Delay((int)delayMs).ConfigureAwait(false);
                     await ReplyOkAsync(peer, capturedId, "late").ConfigureAwait(false);
+                }, cancellationToken);
+                GC.KeepAlive(ignored);
+                return;
+            }
+
+            // Invokes a method from a worker thread so the patch pipeline can block on Python
+            // (blocking on the read loop would deadlock: the reply arrives on the read loop).
+            if (method == "patch.trigger")
+            {
+                var capturedId = id;
+                var targetWire = args.Length > 0 ? args[0] : null;
+                var targetName = args.Length > 1 && args[1] is string name ? name : string.Empty;
+                var callArgs = args.Length > 2 && args[2] is object[] array ? array : Array.Empty<object>();
+                var ignored = Task.Run(async () =>
+                {
+                    object value = null;
+                    string failure = null;
+                    try
+                    {
+                        value = _invoker.Invoke(targetWire, targetName, callArgs);
+                    }
+                    catch (LpcpFault fault)
+                    {
+                        failure = fault.Code + ": " + fault.Message;
+                    }
+                    catch (Exception ex)
+                    {
+                        failure = ex.GetType().Name + ": " + ex.Message;
+                    }
+
+                    await ReplyOkAsync(peer, capturedId, Lcpn(failure, value)).ConfigureAwait(false);
                 }, cancellationToken);
                 GC.KeepAlive(ignored);
                 return;
@@ -373,6 +445,48 @@ namespace LimbusPy.Bridge.Tests
                     };
                 },
 
+                // patch table -----------------------------------------------------------------
+                ["patch.add"] = args =>
+                {
+                    var payload = new Dictionary<string, object>
+                    {
+                        ["owner"] = ToStr(args, 0),
+                        ["method"] = ToStr(args, 1),
+                        ["kind"] = ToStr(args, 2),
+                        ["fn"] = ToStr(args, 3),
+                        ["sig"] = args.Length > 4 && args[4] is object[] signature ? signature : new object[0],
+                    };
+                    var binding = _patches.Apply(PatchSpec.FromWire(payload));
+                    return Lpcp.Map(
+                        "id", binding.Id,
+                        "target", PatchMethodResolver.Describe(binding.Method),
+                        "kind", binding.Spec.Kind == PatchKind.Prefix ? "prefix" : "postfix",
+                        "fn", binding.Spec.Fn);
+                },
+                ["patch.del"] = args =>
+                {
+                    var removed = _patches.Remove(ToStr(args, 0));
+                    if (!removed) throw LpcpFault.NotFound("no patch with id '" + ToStr(args, 0) + "'");
+                    return true;
+                },
+                ["patch.list"] = _ =>
+                {
+                    var bindings = _patches.Bindings;
+                    var items = new object[bindings.Count];
+                    for (var index = 0; index < bindings.Count; index++)
+                    {
+                        var binding = bindings[index];
+                        items[index] = Lpcp.Map(
+                            "id", binding.Id,
+                            "target", PatchMethodResolver.Describe(binding.Method),
+                            "kind", binding.Spec.Kind == PatchKind.Prefix ? "prefix" : "postfix",
+                            "fn", binding.Spec.Fn,
+                            "calls", binding.Calls);
+                    }
+                    return items;
+                },
+                ["patch.stats"] = _ => _patches.Stats(),
+
                 // reflection layer -----------------------------------------------------------
                 ["reflect.new_unit"] = args =>
                 {
@@ -415,6 +529,52 @@ namespace LimbusPy.Bridge.Tests
                     return true;
                 },
             };
+        }
+
+        /// <summary>Bridges a patch dispatch into Python. Runs on a worker thread (patch.trigger).</summary>
+        private object DispatchToPython(PatchCall call)
+        {
+            var peer = Peer;
+            if (peer == null || peer.IsClosed || call == null) return null;
+
+            var context = Lpcp.Map(
+                "patch", call.Binding.Id,
+                "kind", call.Binding.Spec.Kind == PatchKind.Prefix ? "prefix" : "postfix",
+                "target", PatchMethodResolver.Describe(call.Binding.Method),
+                "instance", Wire(call.Instance),
+                "args", WireArray(call.Args),
+                "result", Wire(call.Result));
+
+            var requestId = peer.RequestStart(MsgType.SyncCall, Lpcp.Map(
+                "fn", call.Binding.Spec.Fn,
+                "ctx", context,
+                "deadline_ms", 5000L));
+            var completed = peer.TryWaitResult(requestId, TimeSpan.FromSeconds(8), null, out var reply);
+            if (!completed || !Lpcp.GetBool(reply, "ok")) return null;
+            return reply.TryGetValue("value", out var value) ? value : null;
+        }
+
+        private static Dictionary<string, object> Lcpn(string failure, object value)
+            => Lpcp.Map("ok", failure == null, "value", value, "failure", failure);
+
+        private object Wire(object value)
+        {
+            try
+            {
+                return value == null ? null : _marshaller.ToWire(value);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private object[] WireArray(object[] values)
+        {
+            if (values == null) return Array.Empty<object>();
+            var result = new object[values.Length];
+            for (var index = 0; index < values.Length; index++) result[index] = Wire(values[index]);
+            return result;
         }
 
         private object Dispatch(string method, object[] args)

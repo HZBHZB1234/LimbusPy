@@ -13,10 +13,24 @@
     <AssemblyName>LimbusPy.Bridge.Tests</AssemblyName>
     <RootNamespace>LimbusPy.Bridge.Tests</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Limbus Company</GameDir>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\kernel\LimbusPy.Bridge.Core\LimbusPy.Bridge.Core.csproj" />
+    <ProjectReference Include="..\..\kernel\LimbusPy.Bridge.Harmony\LimbusPy.Bridge.Harmony.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      HarmonyX needs MonoMod at runtime. In-game BepInEx/core provides them; the harness runs
+      standalone, so it copies the exact same files it will use in-game.
+    -->
+    <None Include="$(GameDir)\BepInEx\core\0Harmony.dll" Link="0Harmony.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(GameDir)\BepInEx\core\MonoMod.RuntimeDetour.dll" Link="MonoMod.RuntimeDetour.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(GameDir)\BepInEx\core\MonoMod.Utils.dll" Link="MonoMod.Utils.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(GameDir)\BepInEx\core\MonoMod.Backports.dll" Link="MonoMod.Backports.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(GameDir)\BepInEx\core\MonoMod.ILHelpers.dll" Link="MonoMod.ILHelpers.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

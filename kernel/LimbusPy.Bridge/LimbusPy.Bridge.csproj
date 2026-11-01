@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\LimbusPy.Bridge.Core\LimbusPy.Bridge.Core.csproj" />
+    <ProjectReference Include="..\LimbusPy.Bridge.Harmony\LimbusPy.Bridge.Harmony.csproj" />
   </ItemGroup>
 
   <ItemGroup>

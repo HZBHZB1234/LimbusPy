@@ -81,9 +81,13 @@ class MockKernel:
         self._closed = threading.Event()
         self.bridge.on_request(MsgType.CALL, self._handle_call)
         self.bridge.on_request(MsgType.DOCTOR, self._handle_doctor)
+        self.bridge.on_request(MsgType.PATCH_ADD, self._handle_patch_add)
+        self.bridge.on_request(MsgType.PATCH_DEL, self._handle_patch_del)
         self.bridge.on(MsgType.BYE, self._on_bye)
         self.bridge.on(MsgType.LOG, self._on_log)
         self.logs: List[dict] = []
+        #: id -> spec, mirroring the real kernel's patch table.
+        self.patches: Dict[str, dict] = {}
 
     # -- lifecycle ---------------------------------------------------------------------
 
@@ -158,6 +162,31 @@ class MockKernel:
             raise BridgeError(protocol.ErrorCode.MARSHAL, "args must be a list")
         return handler(*args)
 
+    def _handle_patch_add(self, payload: dict) -> dict:
+        spec = payload.get("spec") if isinstance(payload.get("spec"), dict) else payload
+        owner = spec.get("owner") or ""
+        method = spec.get("method") or ""
+        fn = spec.get("fn") or ""
+        if not owner or not method or not fn:
+            raise BridgeError(protocol.ErrorCode.MARSHAL, "patch needs owner, method and fn")
+        patch_id = "%s.%s#%d" % (owner, method, len(self.patches) + 1)
+        self.patches[patch_id] = {
+            "id": patch_id,
+            "owner": owner,
+            "method": method,
+            "kind": spec.get("kind") or "postfix",
+            "fn": fn,
+            "sig": spec.get("sig") or [],
+        }
+        return self.patches[patch_id]
+
+    def _handle_patch_del(self, payload: dict) -> bool:
+        patch_id = payload.get("patch") or payload.get("id")
+        if patch_id not in self.patches:
+            raise BridgeError(protocol.ErrorCode.NOT_FOUND, "no patch with id %r" % (patch_id,))
+        del self.patches[patch_id]
+        return True
+
     def _handle_doctor(self, payload: dict) -> dict:
         """Canned kernel self-report, shaped like KernelHost.BuildDoctor()."""
         return {
@@ -174,6 +203,7 @@ class MockKernel:
             "types": 0,
             "globals": [],
             "handles": {"live": 0, "pinned": 0, "allocated": 0, "released": 0, "stale": 0, "dead": 0},
+            "patches": {"patches": len(self.patches), "bindings": list(self.patches.values())},
             "dispatcher": {"posted": 0, "executed": 0, "faulted": 0, "pending": 0,
                            "nested_pumps": 0, "nested_refused": 0, "owner_thread": 1},
             "counters": {},
