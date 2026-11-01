@@ -177,6 +177,7 @@ namespace LimbusPy.Bridge.Tests
                 TraceFrames = options.Verbose,
             };
             kernel.Attach(peer);
+            peer.SetAwaiting(MsgType.Ready);
             peer.Start();
 
             var failures = new List<string>();

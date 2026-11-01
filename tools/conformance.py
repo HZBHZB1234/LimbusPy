@@ -324,6 +324,60 @@ def run_live(checker: Checker) -> None:
         checker.expect_error("live: released handle is stale", lambda: bridge.call("k", "handles.tag", handle),
                              StaleHandleError, protocol.ErrorCode.STALE_HANDLE)
 
+        # -- reflection layer ---------------------------------------------------------
+        unit = bridge.call("k", "reflect.new_unit", "Sinner", 40)
+        checker.eq("reflect: new unit is a typed ref", (unit.get("t"), isinstance(unit.get("h"), int)), ("unit", True))
+        checker.eq("reflect: get property", bridge.call("k", "reflect.get", unit, "Hp"), 40)
+        checker.eq("reflect: set property returns new value", bridge.call("k", "reflect.set", unit, "Hp", 30), 30)
+        checker.eq("reflect: invoke converts return", bridge.call("k", "reflect.invoke", unit, "Heal", [5]), 35)
+        checker.eq("reflect: overload by arity (capped)", bridge.call("k", "reflect.invoke", unit, "Heal", [20, False]), 40)
+        checker.eq("reflect: overload by arity (overheal)", bridge.call("k", "reflect.invoke", unit, "Heal", [20, True]), 60)
+        checker.eq("reflect: string property", bridge.call("k", "reflect.set", unit, "Name", "Faust"), "Faust")
+        checker.eq("reflect: double field", bridge.call("k", "reflect.set", unit, "Speed", 7.5), 7.5)
+        checker.eq("reflect: enum set by name", bridge.call("k", "reflect.set", unit, "Faction", "ENEMY"), "ENEMY")
+        checker.eq("reflect: read-only property", bridge.call("k", "reflect.get", unit, "IsAlive"), True)
+        checker.eq("reflect: method call", bridge.call("k", "reflect.invoke", unit, "Describe"),
+                   "Faust hp=60/40 buffs=0 faction=ENEMY")
+
+        buff = bridge.call("k", "reflect.new_buff", "sinking", 2, 1)
+        checker.eq("reflect: new buff kind", buff.get("t"), "buff")
+        checker.eq("reflect: void overload with ref arg", bridge.call("k", "reflect.invoke", unit, "AddBuff", [buff]), None)
+        created = bridge.call("k", "reflect.invoke", unit, "AddBuff", ["rupture", 3, 2])
+        checker.eq("reflect: overload returning a ref", created.get("t"), "buff")
+        checker.eq("reflect: LINQ-style computed member", bridge.call("k", "reflect.get", unit, "BuffCount"), 2)
+        checker.eq("reflect: string arg", bridge.call("k", "reflect.invoke", unit, "CountByKeyword", ["RUPTURE"]), 1)
+        checker.eq("reflect: int[] return", bridge.call("k", "reflect.invoke", unit, "HpSeries", [3]), [60, 61, 62])
+        snapshot = bridge.call("k", "reflect.invoke", unit, "Snapshot")
+        checker.eq("reflect: dictionary return", (snapshot["hp"], snapshot["buffs"], snapshot["faction"]),
+                   (60, 2, "ENEMY"))
+
+        checker.eq("reflect: static call via Ns.Type::Method", bridge.call(
+            "k", "reflect.invoke", "", "LimbusPy.Bridge.Tests.Fixtures.TestStatics::Add", [2, 3]), 5)
+        checker.eq("reflect: static double", bridge.call(
+            "k", "reflect.invoke", "", "LimbusPy.Bridge.Tests.Fixtures.TestStatics::Half", [7]), 3.5)
+        checker.eq("reflect: static field via type:",
+                   bridge.call("k", "reflect.get", "type:LimbusPy.Bridge.Tests.Fixtures.TestStatics", "Version"),
+                   "harness-1.0")
+
+        checker.expect_error("reflect: unknown method -> notfound",
+                             lambda: bridge.call("k", "reflect.invoke", unit, "Nope", []),
+                             NotFoundError, protocol.ErrorCode.NOT_FOUND)
+        checker.expect_error("reflect: unknown member -> notfound",
+                             lambda: bridge.call("k", "reflect.get", unit, "Nope"),
+                             NotFoundError, protocol.ErrorCode.NOT_FOUND)
+        checker.expect_error("reflect: bad argument type -> marshal",
+                             lambda: bridge.call("k", "reflect.invoke", unit, "Overloaded", [{"x": 1}]),
+                             MarshalError, protocol.ErrorCode.MARSHAL)
+        checker.expect_error("reflect: target threw -> internal",
+                             lambda: bridge.call("k", "reflect.invoke", unit, "Explode", []),
+                             BridgeError, protocol.ErrorCode.INTERNAL)
+
+        described = bridge.call("k", "reflect.describe", unit)
+        checker.eq("reflect: describe type", described.get("type"), "LimbusPy.Bridge.Tests.Fixtures.TestUnit")
+        checker.eq("reflect: describe lists Hp", "Hp" in [m.get("n") for m in described.get("members") or []], True)
+        types = bridge.call("k", "reflect.types", "TestUnit")
+        checker.eq("reflect: type index", "LimbusPy.Bridge.Tests.Fixtures.TestUnit" in (types.get("types") or []), True)
+
         # -- concurrency / out-of-order results ---------------------------------------
         results = {}
         errors = []

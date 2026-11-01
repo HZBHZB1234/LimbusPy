@@ -233,6 +233,11 @@ namespace LimbusPy.Bridge.Core.Protocol
         /// <summary>
         /// Accepts either {"t":kind,"h":n} or a bare integer and resolves it to (kind, handle).
         /// Returns false for null refs / unsupported shapes.
+        ///
+        /// NOTE: for call *arguments* prefer <see cref="TryReadRefMap"/> plus type-directed
+        /// interpretation - in an argument position a bare integer is usually a number, not a
+        /// handle. This helper is for places whose only meaning is a reference (targets,
+        /// kernel-to-python values).
         /// </summary>
         public static bool TryReadRef(object value, out HandleKind kind, out uint handle, out bool isExplicitNull)
         {
@@ -258,20 +263,35 @@ namespace LimbusPy.Bridge.Core.Protocol
                     handle = unchecked((uint)i);
                     return handle != 0;
                 case Dictionary<string, object> map:
-                {
-                    var tag = GetString(map, "t");
-                    if (tag == null || tag == "null")
-                    {
-                        isExplicitNull = true;
-                        return false;
-                    }
-                    handle = unchecked((uint)GetLong(map, "h"));
-                    HandleKindNames.TryParse(tag, out kind);
-                    return handle != 0;
-                }
+                    return TryReadRefMap(map, out kind, out handle, out isExplicitNull);
                 default:
                     return false;
             }
+        }
+
+        /// <summary>
+        /// Strictly map-shaped reference: <c>{"t":kind,"h":handle}</c> or <c>{"t":"null"}</c>.
+        /// Integer values are never interpreted, so callers can decide per expected type.
+        /// </summary>
+        public static bool TryReadRefMap(object value, out HandleKind kind, out uint handle, out bool isExplicitNull)
+        {
+            kind = HandleKind.None;
+            handle = 0;
+            isExplicitNull = false;
+
+            if (!(value is Dictionary<string, object> map)) return false;
+            if (!map.ContainsKey("h") && !map.ContainsKey("t")) return false;
+
+            var tag = GetString(map, "t");
+            if (tag == null || tag == "null")
+            {
+                isExplicitNull = true;
+                return false;
+            }
+
+            handle = unchecked((uint)GetLong(map, "h"));
+            HandleKindNames.TryParse(tag, out kind);
+            return handle != 0;
         }
     }
 }

@@ -26,11 +26,12 @@
 | 组件 | 状态 |
 |---|---|
 | LPCP 协议 v1.0（帧、msgpack 子集、消息集、错误模型） | ✅ 冻结 |
-| `LimbusPy.Bridge.Core`（C#，**无 Unity 依赖**） | ✅ 帧编解码 / msgpack / 协议常量 / 句柄表 / PeerConnection / 传输 |
+| `LimbusPy.Bridge.Core`（C#，**无 Unity 依赖**） | ✅ 帧编解码 / msgpack / 协议 / 句柄表 / PeerConnection / 传输 |
+| 反射层（`Core/Reflect`） | ✅ 类型索引 / 值封送 / 重载解析 / `Describe` |
 | Python `limbuspy.runtime` | ✅ codec / framing / protocol / transport / client / 错误模型 |
-| 跨语言一致性测试 `tools/conformance.py` | ✅ **116 项全过**（含真实命名管道往返、并发乱序、句柄 arena、超时、协议不匹配） |
+| 跨语言一致性测试 `tools/conformance.py` | ✅ **144 项全过**（含反射层端到端、真实管道、并发乱序、句柄 arena、超时、协议不匹配） |
 | Python 单测 | ✅ 137 项 |
-| C# 侧 Unity 接线（BepInEx 插件 / 主线程 pump / 反射） | ⏳ 下一步 |
+| C# 侧 Unity 接线（BepInEx 插件 / 主线程 pump / IL2CPP 句柄） | ⏳ 下一步 |
 | `limbuspy.mod`（Mod 基类 / 钩子 / 热重载） | ⏳ |
 | `limbuspy.game.*`（battle / statics / assets / locale / content） | ⏳ |
 | `limbuspy.modular`（单向兼容层） | ⏳ |

@@ -43,6 +43,15 @@ namespace LimbusPy.Bridge.Core.Bridge
             new ConcurrentDictionary<long, TaskCompletionSource<Dictionary<string, object>>>();
         private readonly Dictionary<MsgType, TaskCompletionSource<Frame>> _oneShot =
             new Dictionary<MsgType, TaskCompletionSource<Frame>>();
+
+        /// <summary>
+        /// Frame types the owner is going to wait for. Such frames are buffered instead of being
+        /// handed to the handler, which removes the "peer replied before WaitForAsync registered"
+        /// race (the HELLO/READY handshake hits it reliably).
+        /// </summary>
+        private readonly HashSet<MsgType> _awaiting = new HashSet<MsgType>();
+        private readonly Dictionary<MsgType, Queue<Frame>> _buffered = new Dictionary<MsgType, Queue<Frame>>();
+        private const int MaxBufferedPerType = 64;
         private readonly object _oneShotLock = new object();
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly Action<string> _log;
@@ -130,12 +139,48 @@ namespace LimbusPy.Bridge.Core.Bridge
             }
         }
 
+        /// <summary>
+        /// Declares frame types that will be awaited. Their frames are buffered (up to
+        /// <see cref="MaxBufferedPerType"/>) rather than dispatched, so a reply that arrives
+        /// before the waiter is registered is not lost.
+        /// </summary>
+        public void SetAwaiting(params MsgType[] types)
+        {
+            if (types == null) return;
+            lock (_oneShotLock)
+            {
+                foreach (var type in types)
+                {
+                    _awaiting.Add(type);
+                    if (!_buffered.ContainsKey(type)) _buffered[type] = new Queue<Frame>();
+                }
+            }
+        }
+
+        public void ClearAwaiting(params MsgType[] types)
+        {
+            if (types == null) return;
+            lock (_oneShotLock)
+            {
+                foreach (var type in types)
+                {
+                    _awaiting.Remove(type);
+                    _buffered.Remove(type);
+                }
+            }
+        }
+
         /// <summary>Awaits the next frame of the given type (used for the HELLO/READY handshake).</summary>
         public async Task<Frame> WaitForAsync(MsgType type, TimeSpan timeout, CancellationToken cancellationToken = default)
         {
             TaskCompletionSource<Frame> tcs;
             lock (_oneShotLock)
             {
+                if (_buffered.TryGetValue(type, out var buffered) && buffered.Count > 0)
+                {
+                    return buffered.Dequeue();
+                }
+
                 if (!_oneShot.TryGetValue(type, out tcs))
                 {
                     tcs = new TaskCompletionSource<Frame>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -267,10 +312,31 @@ namespace LimbusPy.Bridge.Core.Bridge
             }
 
             TaskCompletionSource<Frame> waiter;
-            lock (_oneShotLock) _oneShot.TryGetValue(frame.Type, out waiter);
+            lock (_oneShotLock)
+            {
+                _oneShot.TryGetValue(frame.Type, out waiter);
+                if (waiter == null && _awaiting.Contains(frame.Type))
+                {
+                    if (!_buffered.TryGetValue(frame.Type, out var queue))
+                    {
+                        queue = new Queue<Frame>();
+                        _buffered[frame.Type] = queue;
+                    }
+
+                    queue.Enqueue(frame);
+                    while (queue.Count > MaxBufferedPerType) queue.Dequeue();
+                }
+            }
+
             if (waiter != null)
             {
                 waiter.TrySetResult(frame);
+                return;
+            }
+
+            if (_awaiting.Contains(frame.Type))
+            {
+                // Buffered for a future waiter.
                 return;
             }
 
