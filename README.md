@@ -31,8 +31,8 @@
 | Python `limbuspy.runtime` | ✅ codec / framing / protocol / transport / client / 错误模型 |
 | 跨语言一致性测试 `tools/conformance.py` | ✅ **144 项全过**（含反射层端到端、真实管道、并发乱序、句柄 arena、超时、协议不匹配） |
 | Python 单测 | ✅ 137 项 |
-| C# 侧 Unity 接线（BepInEx 插件 / 主线程 pump / IL2CPP 句柄） | ⏳ 下一步 |
-| `limbuspy.mod`（Mod 基类 / 钩子 / 热重载） | ⏳ |
+| BepInEx 内核插件（管道/握手/主线程 pump/IL2CPP 句柄/supervisor） | ✅ 编译通过（0 warning） |
+| `limbuspy.bootstrap` / `limbuspy.mod`（自举 / Mod 基类 / 钩子 / 热重载） | ⏳ 下一步 |
 | `limbuspy.game.*`（battle / statics / assets / locale / content） | ⏳ |
 | `limbuspy.modular`（单向兼容层） | ⏳ |
 

@@ -77,16 +77,35 @@ TCP loopback 作为回退（调试、抓包）。
 
 ---
 
-## 6. 待实现（下一步）
+## 6. 内核插件（`kernel/LimbusPy.Bridge`）
+
+已编译通过（0 warning / 0 error，对着游戏实机 BepInEx + interop 程序集）。
+
+| 文件 | 职责 |
+|---|---|
+| `Plugin.cs` | `BasePlugin` 入口：配置、dispatcher、pump、句柄表、反射器、host、supervisor 的装配；`EnsureMainThread()` 线程守卫 |
+| `Runtime/PumpBehaviour.cs` | 唯一拥有的 Unity 对象（`ClassInjector` 注入的 MonoBehaviour），`Update()` 按帧预算 drain 队列 |
+| `Runtime/KernelHost.cs` | 管道接受循环 + HELLO/READY 握手 + 消息路由（引擎相关一律 `dispatcher.Post` 到主线程） |
+| `Runtime/Il2CppRefStore.cs` | IL2CPP 对象 ↔ 句柄；存活判定用 `Il2CppObjectBase.WasCollected` + `Pointer != 0`；kind 由类型名推断 |
+| `Runtime/InteropTypeIndex.cs` | 索引 interop 程序集（黑名单排除 System/BepInEx/Interop 等），miss 时一次性扫描 `BepInEx/interop/*.dll` |
+| `Runtime/PythonSupervisor.cs` | spawn/attach；PATH 或内置运行时；stdout/stderr 转发；退避重启 + 直通 |
+| `Config/BridgeSettings.cs` | 全部可调项（传输、预算、超时、嵌套深度、重启策略、日志） |
+| `Compat/NullableAttributes.cs` | Il2CppDumper 假 mscorlib 缺少 `NullableAttribute..ctor` 的兼容垫片 |
+
+设计取舍：
+- **不编译期引用 Lethe / ModularSkillScripts**，只声明 soft dependency，Glue 走反射 → 它们升级不会让内核dll 加载失败。
+- **只广告已实现能力**（`reflect.managed` / `reflect.field` / `handle.arena` / `handle.pinned` / `budget.frame`），`patch.table`、`modular.registry`、`snapshot.v1` 未实现前不谎报，Python 侧据此降级。
+- 回复统一 `Task.Run` 写出，不在主线程上做管道 IO。
+
+## 7. 待实现（下一步）
 
 | 部件 | 说明 |
 |---|---|
-| `Plugin.cs` | BepInEx 6 IL2CPP 入口，`[BepInDependency("Lethe")]`，软依赖 Modular |
-| `MainThreadPump` | 注入的 MonoBehaviour，`Update()` 驱动队列；`SYNCALL` 的嵌套 pump（深度 ≤1、deadline、超时取 fallback） |
-| `Il2CppRefStore` | IL2CPP 对象 ↔ 句柄，`isAlive` 用回收检测；kind 由 CLR 类型映射 |
-| `PatchHub` | 表驱动泛化 Harmony 补丁：Python 声明 entry/exit，C# 不重编译即可增删 |
-| `ModularGlue` | 注册 `py`/`pyq`/`pycall` 到 Modular 四张表；`timingDict` 扩展 |
-| `Supervisor` | spawn/attach Python、崩溃退避重启、熔断、帧预算 |
+| `limbuspy.bootstrap` | 被 supervisor spawn 时自举：连管道、加载 mods、跑事件循环、崩溃转储 |
 | `limbuspy.mod` | Mod 基类、装饰器、热重载代际、状态保持 |
 | `limbuspy.game.*` | 战斗 / 静态数据 / 资产 / 本地化 / 内容 API |
+| `PatchHub` | 表驱动泛化 Harmony 补丁（Python 声明 entry/exit，C# 不重编译即可增删） |
+| `ModularGlue` | 注册 `py`/`pyq`/`pycall` 到 Modular 四张表；`timingDict` 扩展 |
+| `SNAPSHOT` | 战斗状态扁平快照（减少往返） |
 | `tools/gen_limbuspy_stubs.py` | dump.cs → `.pyi` / 枚举 / 方法索引 / 能力清单 |
+

@@ -139,7 +139,7 @@ namespace LimbusPy.Bridge.Tests
             CallsHandled++;
             Counters.Increment("call");
 
-            // Deliberately replies late so the client's correlation is tested against out-of-order results.
+                // Deliberately replies late so the client's correlation is tested against out-of-order results.
             if (method == "slow")
             {
                 var delayMs = args.Length > 0 && args[0] is long requested ? requested : 50L;
@@ -148,6 +148,33 @@ namespace LimbusPy.Bridge.Tests
                 {
                     await Task.Delay((int)delayMs).ConfigureAwait(false);
                     await ReplyOkAsync(peer, capturedId, "late").ConfigureAwait(false);
+                }, cancellationToken);
+                GC.KeepAlive(ignored);
+                return;
+            }
+
+            // Exercises the blocking (nested-pump) lane used by in-game SYNCALLs. It has to run
+            // off the read loop, otherwise the reply it waits for could never be received.
+            if (method == "sync.blocking")
+            {
+                var capturedId = id;
+                var ignored = Task.Run(async () =>
+                {
+                    var pumps = 0;
+                    var syncId = peer.RequestStart(MsgType.SyncCall, Lpcp.Map(
+                        "fn", "mymod.blocked",
+                        "ctx", Lpcp.Map("timing", "OnSucceedAttack"),
+                        "deadline_ms", 25L));
+                    var completed = peer.TryWaitResult(syncId, TimeSpan.FromSeconds(3),
+                        () => Interlocked.Increment(ref pumps), out var reply);
+                    object value = null;
+                    if (completed && Lpcp.GetBool(reply, "ok") && reply.TryGetValue("value", out var answered)) value = answered;
+                    await ReplyOkAsync(peer, capturedId, new Dictionary<string, object>
+                    {
+                        ["ok"] = completed,
+                        ["value"] = value,
+                        ["pumps"] = (long)pumps,
+                    }).ConfigureAwait(false);
                 }, cancellationToken);
                 GC.KeepAlive(ignored);
                 return;

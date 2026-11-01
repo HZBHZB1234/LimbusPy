@@ -170,6 +170,65 @@ namespace LimbusPy.Bridge.Core.Bridge
             }
         }
 
+        /// <summary>
+        /// Starts a request and returns its id without waiting. Pair with
+        /// <see cref="TryWaitResult"/> on a thread that must not block on async continuations
+        /// (e.g. the game's main thread inside a Harmony patch).
+        /// </summary>
+        public long RequestStart(MsgType type, Dictionary<string, object> payload)
+        {
+            var id = NextId();
+            var message = payload ?? Lpcp.Map();
+            message["id"] = id;
+            _pending[id] = new TaskCompletionSource<Dictionary<string, object>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            // Fire and forget: the pending entry is completed by the read loop.
+            _ = SendAsync(type, message);
+            return id;
+        }
+
+        /// <summary>
+        /// Blocking wait for a request started with <see cref="RequestStart"/>.
+        /// <paramref name="pump"/> runs while waiting (nested pump); it must be cheap and must not
+        /// start another blocking wait.
+        /// </summary>
+        public bool TryWaitResult(long id, TimeSpan timeout, Action pump, out Dictionary<string, object> payload)
+        {
+            payload = null;
+            if (!_pending.TryGetValue(id, out var pending)) return false;
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            while (!pending.Task.IsCompleted)
+            {
+                if (stopwatch.Elapsed >= timeout) break;
+                try
+                {
+                    pump?.Invoke();
+                }
+                catch
+                {
+                    // A faulting pump must not lose the reply.
+                }
+
+                if (pending.Task.IsCompleted) break;
+                System.Threading.Thread.Sleep(1);
+            }
+
+            if (!pending.Task.IsCompleted)
+            {
+                _pending.TryRemove(id, out _);
+                return false;
+            }
+
+            _pending.TryRemove(id, out _);
+            if (pending.Task.IsFaulted || pending.Task.IsCanceled) return false;
+            payload = pending.Task.Result;
+            return true;
+        }
+
+        public bool IsPending(long id) => _pending.ContainsKey(id);
+
+        public int PendingCount => _pending.Count;
+
         /// <summary>Awaits the next frame of the given type (used for the HELLO/READY handshake).</summary>
         public async Task<Frame> WaitForAsync(MsgType type, TimeSpan timeout, CancellationToken cancellationToken = default)
         {

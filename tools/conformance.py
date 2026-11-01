@@ -421,6 +421,13 @@ def run_live(checker: Checker) -> None:
         checker.eq("live: event batch size", len(seen["events"][0].get("events") or []), 2)
         checker.eq("live: sync call fn", seen["sync"][0].get("fn"), "mymod.ping")
 
+        # -- blocking (nested-pump) lane ---------------------------------------------
+        blocking = bridge.call("k", "sync.blocking", timeout=10.0)
+        checker.eq("live: blocking sync call completed", blocking.get("ok"), True)
+        checker.eq("live: blocking sync call value echoed",
+                   (blocking.get("value") or {}).get("echoed"), "mymod.blocked")
+        checker.eq("live: nested pump ran while blocked", (blocking.get("pumps") or 0) > 0, True)
+
         # -- ping --------------------------------------------------------------------
         for _ in range(50):
             bridge.notify(MsgType.PING)
