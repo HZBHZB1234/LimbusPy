@@ -132,6 +132,38 @@ def index(args) -> int:
     return 0
 
 
+def repl(args) -> int:
+    """Interactive console over a (possibly running) kernel."""
+    from .devkit import repl as repl_module
+
+    argv = []
+    for flag in ("pipe", "tcp", "code", "exec_file", "mods"):
+        value = getattr(args, flag, None)
+        if value:
+            argv += ["--" + flag.replace("_", "-"), str(value)]
+    if getattr(args, "no_connect", False):
+        argv.append("--no-connect")
+    return repl_module.main(argv)
+
+
+def statics(args) -> int:
+    """Extracts (or lists) the game's static data tables."""
+    tools = _repo_tools_dir()
+    script = os.path.join(tools, "extract_statics.py")
+    if not os.path.isfile(script):
+        print("extractor not found: %s" % script, file=sys.stderr)
+        return 2
+    sys.path.insert(0, tools)
+    import extract_statics  # noqa: PLC0415
+
+    argv = ["--out", args.out]
+    if args.bundle:
+        argv += ["--bundle", args.bundle]
+    if args.catalog:
+        argv += ["--catalog", args.catalog]
+    return extract_statics.main(argv)
+
+
 def pack(args) -> int:
     """Packages the distributable layouts (delegates to tools/pack.py)."""
     tools = _repo_tools_dir()
@@ -194,6 +226,21 @@ def build_parser() -> argparse.ArgumentParser:
     index_parser.add_argument("--build", default=None)
     index_parser.add_argument("--limit", type=int, default=50)
     index_parser.set_defaults(func=index)
+
+    repl_parser = sub.add_parser("repl", help="interactive console over a running kernel")
+    repl_parser.add_argument("--pipe", default=os.environ.get("LIMBUSPY_PIPE_PREFIX"))
+    repl_parser.add_argument("--tcp", default=None)
+    repl_parser.add_argument("--mods", default=os.environ.get("LIMBUSPY_MODS_DIR"))
+    repl_parser.add_argument("-c", dest="code", default=None, help="run a snippet and exit")
+    repl_parser.add_argument("--exec", dest="exec_file", default=None, help="run a file and exit")
+    repl_parser.add_argument("--no-connect", action="store_true")
+    repl_parser.set_defaults(func=repl)
+
+    statics_parser = sub.add_parser("statics", help="extract the static data tables (needs UnityPy)")
+    statics_parser.add_argument("--out", default=os.path.join("extracted", "statics"))
+    statics_parser.add_argument("--bundle", default=None)
+    statics_parser.add_argument("--catalog", default=None)
+    statics_parser.set_defaults(func=statics)
 
     pack_parser = sub.add_parser("pack", help="build the system/bundled distribution layouts")
     pack_parser.add_argument("--out", default=os.path.join(os.path.dirname(os.path.dirname(

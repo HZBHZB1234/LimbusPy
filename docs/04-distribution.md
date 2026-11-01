@@ -61,3 +61,17 @@ python -m limbuspy doctor --mods mods
 1. 覆盖三个 `LimbusPy.Bridge*.dll`；
 2. 覆盖 `python/limbuspy/`（保留 `mods/` 与 `.state/`）；
 3. 游戏版本更新后重新生成索引（`python -m limbuspy stubs --dump <dump.cs>`）并看 `doctor` 的 caps 报告。
+
+## 工具箱（`python -m limbuspy …`）
+
+| 命令 | 作用 |
+|---|---|
+| `doctor` | stubs / 解释器 / mods / 运行中内核（含 caps、handles、dispatcher、patches）自检 |
+| `repl` | 连运行中的内核交互式试脚本；`-c "…"` / `--exec file` 非交互；`--no-connect` 离线 |
+| `stubs` | 从 `dump.cs` 生成 IL2CPP 索引（enums/types.pyi/methods.json/caps.json） |
+| `statics` | 从 bundle 抽出静态数据表（需要 UnityPy，仅这一步需要） |
+| `pack` | 产出 system / bundled 两个分发布局 |
+| `mods` / `index` / `version` | 列 mod 依赖、查索引、看版本 |
+
+REPL 里预置：`bridge`（原始 LPCP）、`session`（反射 get/set/call + snapshot）、`gb`（战斗门面）、
+`Modular`（单向兼容层）、`members`（已校验成员表）、`il2cpp`（索引查询）。

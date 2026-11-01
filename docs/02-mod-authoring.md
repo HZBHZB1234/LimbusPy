@@ -175,6 +175,30 @@ def on_hit(self, ctx):
 - 所有成员名都在 `limbuspy/game/members.py` 里，且被 `tools/requirements/limbuspy.json` 对着真实 dump 校验；写错名字 `doctor` 会报，`LIMBUSPY_STRICT=1` 时直接抛错。
 - 想读没包装的东西？`unit.get("某成员")` / `unit.call("某方法", 1, 2)` / `unit.set(...)` 就是逃生口。
 
+## 6.3 读静态数据表（`limbuspy.game.statics`）
+
+游戏里 2 185 张数据表（技能/人格/被动/Buff/遭遇…）是 TextAsset JSON。分成两步：
+
+```powershell
+# 1) 只做一次：从 bundle 里抽成普通目录（这一步需要 UnityPy + 游戏本体）
+python -m limbuspy statics --catalog "<catalog.bin>" --out extracted/statics
+```
+
+```python
+# 2) 脚本/工具里纯 Python 读，不依赖 UnityPy
+from limbuspy.game import statics
+
+db = statics.open_tables("extracted/statics")
+db.tables                                   # ["BuffData", "PassiveData", "SkillData", ...]
+row = db.get("SkillData", 601101)           # 单条记录
+tier3 = db.rows("SkillData", tier=3)        # 字段过滤（等值或多值）
+
+patch = db.patch("SkillData", 601101, {"tier": 5})     # 记录一条覆盖
+patch.save("mods/my_mod/patches.json")                 # 随 mod 发布
+```
+
+`Patch` 可以 `apply_to(db)` 在内存里立刻验证，也可以 `save`/`load` 与 mod 一起分发。
+
 ## 6.5 Harmony 补丁（原生钩子的最后一公里）
 
 时机系统覆盖不到的方法，可以直接打补丁：
