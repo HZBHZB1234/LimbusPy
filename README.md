@@ -30,9 +30,9 @@
 | 反射层（`Core/Reflect`） | ✅ 类型索引 / 值封送 / 重载解析 / `Describe` |
 | Python `limbuspy.runtime` | ✅ codec / framing / protocol / transport / client / 错误模型 |
 | 跨语言一致性测试 `tools/conformance.py` | ✅ **144 项全过**（含反射层端到端、真实管道、并发乱序、句柄 arena、超时、协议不匹配） |
-| Python 单测 | ✅ 137 项 |
+| Python 单测 | ✅ 157 项 |
 | BepInEx 内核插件（管道/握手/主线程 pump/IL2CPP 句柄/supervisor） | ✅ 编译通过（0 warning） |
-| `limbuspy.bootstrap` / `limbuspy.mod`（自举 / Mod 基类 / 钩子 / 热重载） | ⏳ 下一步 |
+| `limbuspy.bootstrap` / `limbuspy.mod`（自举 / Mod 基类 / 钩子 / 热重载） | ✅ 20 项 mod 层测试（含热重载代际、状态保持、失败隔离） |
 | `limbuspy.game.*`（battle / statics / assets / locale / content） | ⏳ |
 | `limbuspy.modular`（单向兼容层） | ⏳ |
 
@@ -57,6 +57,11 @@ LimbusPy/
 ```
 
 ---
+
+## 文档
+- [`docs/01-protocol.md`](docs/01-protocol.md) 线协议 v1.0（冻结）
+- [`docs/02-mod-authoring.md`](docs/02-mod-authoring.md) **mod 作者指南**（装饰器/ctx/热重载/调试）
+- [`docs/03-architecture.md`](docs/03-architecture.md) 分层与内核插件
 
 ## 快速验证（不需要游戏）
 
@@ -85,3 +90,5 @@ LimbusPy/
 ## 许可
 
 与工作区其它部分一致：仅用于本地单人 modding / 研究用途，不修改游戏安装文件、不触碰服务端协议。
+
+
