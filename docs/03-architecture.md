@@ -74,6 +74,8 @@ TCP loopback 作为回退（调试、抓包）。
 - 请求类消息带 `id`，对端回 `CALLRESULT`；`SYNCALL` 回 `SYNCRESULT`（关联器两种都接受，避免版本错配死锁）。
 - **`SetAwaiting(...)`**：声明"我会等这个类型的帧"，该类型帧改为缓冲而非交给 handler。修掉 HELLO/READY 与 EVENTBATCH/ACT 的注册竞态。
 - 超时后到达的回包按"孤儿"丢弃，不会串到别的请求上（并发 30 线程乱序回包已验证）。
+- **结果帧只"完成"不"摘除" pending**：摘除权归等待方（RequestAsync / TryWaitResult 的 finally）。
+  早期版本由读线程摘除，与阻塞等待方竞争，导致 pumps=0 式的假超时——这是被一致性测试抓出来的真 bug。
 
 ---
 

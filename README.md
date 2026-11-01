@@ -76,7 +76,7 @@ LimbusPy/
 .venv\Scripts\python.exe LimbusPy\tools\conformance.py --golden-only
 ```
 
-已经实测确认：C# 与 Python 的 msgpack 编码**字节级一致**（38 个边界用例），命名管道上握手 / 50 并发调用乱序配对 / 句柄 arena 语义 / 超时后的孤儿回包 / 协议不匹配致命拒绝全部通过。
+已经实测确认：C# 与 Python 的 msgpack 编码**字节级一致**（38 个边界用例）；命名管道上握手 / 30 并发调用乱序配对 / 句柄 arena 语义 / 超时后的孤儿回包 / 协议不匹配致命拒绝全部通过；并且**真实的 python -m limbuspy.bootstrap 进程能被真实 C# 内核拉起**：握手 → 加载 mod → 钩子经 EVENTBATCH 触发 → 暴露函数经 SYNCALL 调用 → 内核关闭后干净退出。
 
 ---
 

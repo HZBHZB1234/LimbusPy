@@ -123,6 +123,7 @@ namespace LimbusPy.Bridge.Core.Bridge
                     timeoutCts.CancelAfter(timeout);
                     using (timeoutCts.Token.Register(() =>
                            {
+                               // TrySetException is a no-op when the reply already arrived.
                                if (tcs.TrySetException(new RequestTimeoutException(
                                        type + " id=" + id + " timed out after " + timeout.TotalMilliseconds + " ms")))
                                    _pending.TryRemove(id, out _);
@@ -132,10 +133,9 @@ namespace LimbusPy.Bridge.Core.Bridge
                     }
                 }
             }
-            catch
+            finally
             {
                 _pending.TryRemove(id, out _);
-                throw;
             }
         }
 
@@ -196,33 +196,34 @@ namespace LimbusPy.Bridge.Core.Bridge
             payload = null;
             if (!_pending.TryGetValue(id, out var pending)) return false;
 
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            while (!pending.Task.IsCompleted)
+            try
             {
-                if (stopwatch.Elapsed >= timeout) break;
-                try
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                while (!pending.Task.IsCompleted)
                 {
-                    pump?.Invoke();
-                }
-                catch
-                {
-                    // A faulting pump must not lose the reply.
+                    if (stopwatch.Elapsed >= timeout) break;
+                    try
+                    {
+                        pump?.Invoke();
+                    }
+                    catch
+                    {
+                        // A faulting pump must not lose the reply.
+                    }
+
+                    if (pending.Task.IsCompleted) break;
+                    System.Threading.Thread.Sleep(1);
                 }
 
-                if (pending.Task.IsCompleted) break;
-                System.Threading.Thread.Sleep(1);
+                if (!pending.Task.IsCompleted) return false;
+                if (pending.Task.IsFaulted || pending.Task.IsCanceled) return false;
+                payload = pending.Task.Result;
+                return true;
             }
-
-            if (!pending.Task.IsCompleted)
+            finally
             {
                 _pending.TryRemove(id, out _);
-                return false;
             }
-
-            _pending.TryRemove(id, out _);
-            if (pending.Task.IsFaulted || pending.Task.IsCanceled) return false;
-            payload = pending.Task.Result;
-            return true;
         }
 
         public bool IsPending(long id) => _pending.ContainsKey(id);
@@ -360,7 +361,10 @@ namespace LimbusPy.Bridge.Core.Bridge
                 if (payload != null && payload.TryGetValue("id", out var idValue))
                 {
                     var id = ToLong(idValue);
-                    if (_pending.TryRemove(id, out var tcs))
+                    // Complete, but do NOT remove: the waiter owns removal (see RequestAsync /
+                    // TryWaitResult). Removing here raced the blocking waiter and made it observe a
+                    // missing entry and report a timeout.
+                    if (_pending.TryGetValue(id, out var tcs))
                     {
                         tcs.TrySetResult(payload);
                         return;

@@ -101,6 +101,7 @@ namespace LimbusPy.Bridge.Tests
             public string OutPath;
             public double MaxSeconds = 60;
             public bool Verbose;
+            public bool ExitAfterScript;
         }
 
         private static Options ParseOptions(string[] args)
@@ -130,6 +131,9 @@ namespace LimbusPy.Bridge.Tests
                         break;
                     case "--verbose":
                         options.Verbose = true;
+                        break;
+                    case "--exit-after-script":
+                        options.ExitAfterScript = true;
                         break;
                     default:
                         throw new ArgumentException("unknown option: " + args[i]);
@@ -263,9 +267,17 @@ namespace LimbusPy.Bridge.Tests
                     }
                 }
 
-                // Serve until the client goes away (or the watchdog fires).
-                await peer.WaitForCloseAsync().ConfigureAwait(false);
-                Log(options, "peer closed");
+                if (options.ExitAfterScript)
+                {
+                    Log(options, "script complete; closing the connection");
+                    await peer.CloseAsync("script complete").ConfigureAwait(false);
+                }
+                else
+                {
+                    // Serve until the client goes away (or the watchdog fires).
+                    await peer.WaitForCloseAsync().ConfigureAwait(false);
+                    Log(options, "peer closed");
+                }
             }
             finally
             {
@@ -301,3 +313,4 @@ namespace LimbusPy.Bridge.Tests
             => frame.HasPayload ? PeerConnection.DecodePayload(frame) : new Dictionary<string, object>();
     }
 }
+

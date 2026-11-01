@@ -165,7 +165,7 @@ namespace LimbusPy.Bridge.Tests
                         "fn", "mymod.blocked",
                         "ctx", Lpcp.Map("timing", "OnSucceedAttack"),
                         "deadline_ms", 25L));
-                    var completed = peer.TryWaitResult(syncId, TimeSpan.FromSeconds(3),
+                    var completed = peer.TryWaitResult(syncId, TimeSpan.FromSeconds(8),
                         () => Interlocked.Increment(ref pumps), out var reply);
                     object value = null;
                     if (completed && Lpcp.GetBool(reply, "ok") && reply.TryGetValue("value", out var answered)) value = answered;

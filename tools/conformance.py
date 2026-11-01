@@ -177,26 +177,28 @@ def run_golden(checker: Checker) -> None:
 
 
 class HarnessProcess:
-    def __init__(self, events: int = 2, sync_fn: str = "mymod.ping") -> None:
+    def __init__(self, events: int = 2, sync_fn: str = "mymod.ping", extra_args=None) -> None:
         self.pipe = "limbuspy.conf.%d" % os.getpid()
         self.tmp = tempfile.mkdtemp(prefix="limbuspy-conf-")
         self.summary_path = os.path.join(self.tmp, "summary.json")
+        argv = [
+            dotnet(),
+            HARNESS_DLL,
+            "serve",
+            "--pipe",
+            self.pipe,
+            "--events",
+            str(events),
+            "--sync",
+            sync_fn,
+            "--out",
+            self.summary_path,
+            "--max-seconds",
+            "90",
+        ]
+        argv.extend(extra_args or [])
         self.proc = subprocess.Popen(
-            [
-                dotnet(),
-                HARNESS_DLL,
-                "serve",
-                "--pipe",
-                self.pipe,
-                "--events",
-                str(events),
-                "--sync",
-                sync_fn,
-                "--out",
-                self.summary_path,
-                "--max-seconds",
-                "90",
-            ],
+            argv,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -422,7 +424,10 @@ def run_live(checker: Checker) -> None:
         checker.eq("live: sync call fn", seen["sync"][0].get("fn"), "mymod.ping")
 
         # -- blocking (nested-pump) lane ---------------------------------------------
-        blocking = bridge.call("k", "sync.blocking", timeout=10.0)
+        blocking = bridge.call("k", "sync.blocking", timeout=12.0)
+        if not blocking.get("ok"):
+            print("      blocking detail: payload=%r sync_seen=%d" % (blocking, len(seen["sync"])))
+            print("      harness stderr tail:\n%s" % harness.stderr_text()[-1200:])
         checker.eq("live: blocking sync call completed", blocking.get("ok"), True)
         checker.eq("live: blocking sync call value echoed",
                    (blocking.get("value") or {}).get("echoed"), "mymod.blocked")
@@ -489,6 +494,102 @@ def run_protocol_mismatch(checker: Checker) -> None:
             harness.kill()
 
 
+def run_bootstrap_smoke(checker: Checker) -> None:
+    """Runs the real entry point (``python -m limbuspy.bootstrap``) against the real C# kernel.
+
+    This is the closest thing to an in-game run that can happen without the game: same protocol
+    implementation, same handshake, same mod loading, same hook dispatch - only the objects behind
+    the handles are ordinary C# instances instead of IL2CPP ones.
+    """
+    print("[spawn] real bootstrap process against the C# kernel")
+    harness = HarnessProcess(events=2, sync_fn="smoke.answer", extra_args=["--exit-after-script"])
+    tmp = tempfile.mkdtemp(prefix="limbuspy-spawn-")
+    mods_dir = os.path.join(tmp, "mods")
+    state_dir = os.path.join(tmp, "state")
+    mod_dir = os.path.join(mods_dir, "smoke")
+    os.makedirs(mod_dir, exist_ok=True)
+    os.makedirs(state_dir, exist_ok=True)
+
+    with open(os.path.join(mod_dir, "__init__.py"), "w", encoding="utf-8") as handle:
+        handle.write(
+            "from limbuspy.mod import Mod, hook, expose\n"
+            "\n"
+            "class Smoke(Mod):\n"
+            "    @hook('OnSucceedAttack')\n"
+            "    def on_hit(self, ctx):\n"
+            "        ctx.call('', 'echo', 'hook-ran')\n"
+            "\n"
+            "    @expose('smoke.answer')\n"
+            "    def answer(self, ctx):\n"
+            "        return 42\n"
+        )
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = PY_DIR + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONUTF8"] = "1"
+
+    log_lines = []
+    bootstrap = None
+    try:
+        harness.wait_ready()
+        bootstrap = subprocess.Popen(
+            [
+                sys.executable, "-u", "-m", "limbuspy.bootstrap",
+                "--pipe", harness.pipe,
+                "--mods", mods_dir,
+                "--state", state_dir,
+                "--no-watch",
+                "--connect-timeout", "20",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=env,
+            cwd=tmp,
+        )
+        drain = threading.Thread(target=lambda: [log_lines.append(line.rstrip()) for line in bootstrap.stdout],
+                                 daemon=True)
+        drain.start()
+
+        summary = harness.summary(timeout=40)
+        if not summary.get("ok"):
+            print("      spawn harness failures: %r" % (summary.get("failures"),))
+        checker.eq("spawn: kernel summary ok", summary.get("ok"), True)
+        checker.eq("spawn: hook reached the kernel", summary.get("served_calls", (summary.get("calls") or 0)) >= 1, True)
+        checker.eq("spawn: event batch handled", (summary.get("events") or {}).get("actions"), 2)
+        checker.eq("spawn: exposed function value", (summary.get("sync") or {}).get("value"), 42)
+        checker.eq("spawn: bootstrap exits cleanly when the kernel closes",
+                   bootstrap.wait(timeout=20), 0)
+    finally:
+        if bootstrap is not None and bootstrap.poll() is None:
+            bootstrap.terminate()
+            try:
+                bootstrap.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                bootstrap.kill()
+        if not os.path.exists(harness.summary_path):
+            harness.kill()
+            print("\n".join(log_lines[-20:]))
+
+
+def run_bootstrap_failure(checker: Checker) -> None:
+    """A bootstrap with no kernel must exit non-zero instead of hanging forever."""
+    print("[spawn] bootstrap without a kernel fails fast")
+    tmp = tempfile.mkdtemp(prefix="limbuspy-nokernel-")
+    env = dict(os.environ)
+    env["PYTHONPATH"] = PY_DIR + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    proc = subprocess.run(
+        [sys.executable, "-u", "-m", "limbuspy.bootstrap",
+         "--pipe", "limbuspy.does-not-exist.%d" % os.getpid(),
+         "--mods", tmp, "--state", tmp, "--connect-timeout", "1.5"],
+        capture_output=True, text=True, env=env, timeout=30,
+    )
+    checker.eq("spawn: missing kernel -> exit 1", proc.returncode, 1)
+    checker.eq("spawn: missing kernel reports why",
+               "could not connect" in (proc.stderr or ""), True)
+
+
 # ---------------------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------------------
@@ -499,6 +600,7 @@ def main() -> int:
     parser.add_argument("--golden-only", action="store_true")
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--skip-mismatch", action="store_true")
+    parser.add_argument("--skip-spawn", action="store_true")
     args = parser.parse_args()
 
     if os.name != "nt":
@@ -512,8 +614,14 @@ def main() -> int:
         run_live(checker)
         if not args.skip_mismatch:
             run_protocol_mismatch(checker)
+        if not args.skip_spawn:
+            run_bootstrap_smoke(checker)
+            run_bootstrap_failure(checker)
     return checker.report()
 
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+

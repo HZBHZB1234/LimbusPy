@@ -142,17 +142,21 @@ class Bridge:
 
     @classmethod
     def connect_pipe(cls, pipe_prefix: str, timeout: float = DEFAULT_TIMEOUT, **kwargs: Any) -> "Bridge":
-        """Connects to a kernel endpoint (``limbuspy.<pid>``) over its two one-way pipes."""
+        """Connects to a kernel endpoint (``limbuspy.<pid>``) over its two one-way pipes.
+
+        The returned bridge is already running (reader + handler threads started); use
+        :meth:`from_transport` if you need to wire things up before starting.
+        """
         from .transport import connect_pipe_pair
 
-        return cls(connect_pipe_pair(pipe_prefix, timeout=timeout), **kwargs)
+        return cls(connect_pipe_pair(pipe_prefix, timeout=timeout), **kwargs).start()
 
     @classmethod
     def connect_tcp(cls, host: str = "127.0.0.1", port: int = 0, timeout: float = DEFAULT_TIMEOUT,
                     **kwargs: Any) -> "Bridge":
         from .transport import connect_tcp
 
-        return cls(connect_tcp(host, port, timeout=timeout), **kwargs)
+        return cls(connect_tcp(host, port, timeout=timeout), **kwargs).start()
 
     @classmethod
     def from_transport(cls, transport: Transport, **kwargs: Any) -> "Bridge":
