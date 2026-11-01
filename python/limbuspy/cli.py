@@ -132,6 +132,25 @@ def index(args) -> int:
     return 0
 
 
+def pack(args) -> int:
+    """Packages the distributable layouts (delegates to tools/pack.py)."""
+    tools = _repo_tools_dir()
+    script = os.path.join(tools, "pack.py")
+    if not os.path.isfile(script):
+        print("packer not found: %s" % script, file=sys.stderr)
+        return 2
+
+    sys.path.insert(0, tools)
+    import pack as packer  # noqa: PLC0415
+
+    argv = ["--out", args.out, "--variant", args.variant]
+    if args.python_embed:
+        argv += ["--python-embed", args.python_embed]
+    if args.no_build:
+        argv += ["--no-build"]
+    return packer.main(argv)
+
+
 def version(args) -> int:
     print("limbuspy %s (proto %s)" % (__version__, protocol.PROTOCOL_VERSION))
     build = current_build()
@@ -175,6 +194,14 @@ def build_parser() -> argparse.ArgumentParser:
     index_parser.add_argument("--build", default=None)
     index_parser.add_argument("--limit", type=int, default=50)
     index_parser.set_defaults(func=index)
+
+    pack_parser = sub.add_parser("pack", help="build the system/bundled distribution layouts")
+    pack_parser.add_argument("--out", default=os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))), "dist"))
+    pack_parser.add_argument("--variant", choices=("system", "bundled", "both"), default="both")
+    pack_parser.add_argument("--python-embed", default=None)
+    pack_parser.add_argument("--no-build", action="store_true")
+    pack_parser.set_defaults(func=pack)
 
     version_parser = sub.add_parser("version", help="print versions")
     version_parser.set_defaults(func=version)

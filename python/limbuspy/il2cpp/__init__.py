@@ -46,7 +46,11 @@ def available_builds(root: Optional[str] = None) -> List[str]:
         directory = os.path.join(root, entry)
         if not os.path.isdir(directory):
             continue
-        if not os.path.isfile(os.path.join(directory, "methods.json")):
+        # A distribution ships enums/types stubs but not the 34 MB methods.json; such a build is
+        # still "available" (enums importable), it just cannot answer index queries.
+        has_index = os.path.isfile(os.path.join(directory, "methods.json"))
+        has_enums = os.path.isfile(os.path.join(directory, "enums.py"))
+        if not has_index and not has_enums:
             continue
         builds.append((os.path.getmtime(directory), entry))
     builds.sort(reverse=True)

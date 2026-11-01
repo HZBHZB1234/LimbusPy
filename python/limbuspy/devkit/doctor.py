@@ -21,7 +21,11 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .. import __version__
-from ..il2cpp import available_builds, current_build, default_index
+from ..il2cpp import GEN_ROOT, available_builds, current_build, default_index
+
+
+def gen_root() -> str:
+    return GEN_ROOT
 from ..runtime import protocol
 from ..runtime.client import Bridge
 from ..runtime.errors import LimbusPyError
@@ -39,7 +43,9 @@ class Check:
 
     @property
     def ok(self) -> bool:
-        return self.status in ("ok", "skipped")
+        # "unknown" (e.g. no generated index on a fresh install) and "skipped" are not failures;
+        # only a broken part makes the install unhealthy.
+        return self.status in ("ok", "skipped", "unknown", "warn")
 
     def to_dict(self) -> dict:
         payload = {"name": self.name, "status": self.status, "detail": self.detail}
@@ -58,7 +64,7 @@ class Report:
 
     @property
     def ok(self) -> bool:
-        return all(check.ok for check in self.checks)
+        return not any(check.status == "broken" for check in self.checks)
 
     def section(self, prefix: str) -> List[Check]:
         return [check for check in self.checks if check.name.startswith(prefix)]
@@ -111,6 +117,12 @@ def check_stubs(build: Optional[str] = None) -> Check:
 
     index = default_index(build)
     if index is None:
+        if os.path.isfile(os.path.join(gen_root(), str(build), "enums.py")):
+            return Check(
+                "stubs", "warn",
+                "%s: enums shipped without methods.json (index queries unavailable; "
+                "run tools/gen_limbuspy_stubs.py to add it)" % build,
+                {"builds": builds})
         return Check("stubs", "broken", "index directory %r is incomplete (no methods.json)" % build,
                      {"builds": builds})
 
