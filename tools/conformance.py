@@ -261,7 +261,11 @@ def run_live(checker: Checker) -> None:
 
     def on_sync(payload):
         seen["sync"].append(payload)
-        return {"echoed": payload.get("fn"), "timing": (payload.get("ctx") or {}).get("timing")}
+        fn = payload.get("fn") or ""
+        if fn == "mymod.blocked":
+            # Make the kernel's blocking lane actually block so its nested pump has to run.
+            time.sleep(0.03)
+        return {"echoed": fn, "timing": (payload.get("ctx") or {}).get("timing")}
 
     bridge = None
     try:
@@ -437,6 +441,19 @@ def run_live(checker: Checker) -> None:
         for _ in range(50):
             bridge.notify(MsgType.PING)
         checker.eq("live: pings answered", bridge.wait_for(MsgType.PONG, timeout=3.0).type, MsgType.PONG)
+
+        # -- doctor (kernel self-report + limbuspy.devkit integration) --------------
+        try:
+            from limbuspy.devkit import check_kernel
+
+            kernel_check = check_kernel(bridge, timeout=5.0)
+            checker.eq("doctor: kernel check ok", kernel_check.status, "ok")
+            checker.eq("doctor: kernel reports caps", bool(kernel_check.data.get("doctor", {}).get("caps")), True)
+            doctor_payload = kernel_check.data.get("doctor") or {}
+            checker.eq("doctor: proto matches", doctor_payload.get("proto"), protocol.PROTOCOL_VERSION)
+            checker.eq("doctor: dispatcher section", isinstance(doctor_payload.get("dispatcher"), dict), True)
+        except ImportError as exc:  # pragma: no cover - limbuspy must be importable here
+            checker.check("doctor: import", lambda: (_ for _ in ()).throw(AssertionError(str(exc))))
 
         # -- counters were exercised -------------------------------------------------
         stats = bridge.stats()

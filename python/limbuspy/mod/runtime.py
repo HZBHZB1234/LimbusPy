@@ -24,11 +24,11 @@ from .loader import (
     ManifestError,
     ModManifest,
     describe_failure,
-    discover,
     import_mod,
     instantiate_mod,
     load_config,
     load_mod,
+    prepare,
     register_instance,
     resolve_order,
     save_config,
@@ -171,43 +171,25 @@ class ModRuntime:
     def load_all(self) -> Dict[str, str]:
         self.load_errors.clear()
         try:
-            manifests = discover(self.mods_dir)
+            prepared = prepare(self.mods_dir)
         except ManifestError as exc:
             self._log_error("mod discovery failed: %s" % exc)
             return dict(self.load_errors)
 
-        # Phase 1: import everything so code-declared `requires` participates in ordering.
-        prepared = []
-        for manifest in manifests:
-            try:
-                module = import_mod(manifest)
-                instance = instantiate_mod(module, manifest)
-            except Exception as exc:  # noqa: BLE001 - one broken mod must not stop discovery
-                self.load_errors[manifest.name] = describe_failure(exc)
-                self._log_error("failed to import %s: %s" % (manifest.name, describe_failure(exc)))
-                unload_module(manifest)
-                continue
-
-            if instance.requires:
-                merged = list(manifest.requires)
-                for requirement in instance.requires:
-                    if requirement not in merged:
-                        merged.append(requirement)
-                manifest.requires = merged
-
-            prepared.append((manifest, module, instance))
+        for name, error in prepared.errors.items():
+            self.load_errors[name] = error
+            self._log_error("failed to import %s: %s" % (name, error))
 
         try:
-            self.order = resolve_order([manifest for manifest, _module, _instance in prepared])
+            self.order = resolve_order([manifest for manifest, _module, _instance in prepared.imported])
         except ManifestError as exc:
             self._log_error("dependency resolution failed: %s" % exc)
-            for manifest, _module, _instance in prepared:
+            for manifest, _module, _instance in prepared.imported:
                 unload_module(manifest)
             return dict(self.load_errors)
 
-        # Phase 2: register in dependency order.
         by_name = {manifest.name: (manifest, module, instance)
-                   for manifest, module, instance in prepared}
+                   for manifest, module, instance in prepared.imported}
         for manifest in self.order:
             entry = by_name.get(manifest.name)
             if entry is None:

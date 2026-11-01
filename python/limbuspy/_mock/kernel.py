@@ -80,6 +80,7 @@ class MockKernel:
         self.ready: Optional[dict] = None
         self._closed = threading.Event()
         self.bridge.on_request(MsgType.CALL, self._handle_call)
+        self.bridge.on_request(MsgType.DOCTOR, self._handle_doctor)
         self.bridge.on(MsgType.BYE, self._on_bye)
         self.bridge.on(MsgType.LOG, self._on_log)
         self.logs: List[dict] = []
@@ -156,6 +157,28 @@ class MockKernel:
         if not isinstance(args, list):
             raise BridgeError(protocol.ErrorCode.MARSHAL, "args must be a list")
         return handler(*args)
+
+    def _handle_doctor(self, payload: dict) -> dict:
+        """Canned kernel self-report, shaped like KernelHost.BuildDoctor()."""
+        return {
+            "proto": protocol.PROTOCOL_VERSION,
+            "kernel": KERNEL_VERSION,
+            "game": self._game_version + "/mock-unity",
+            "stubs_build": self._game_build,
+            "connected": not self.bridge.closed,
+            "generation": 1,
+            "pid": 0,
+            "pipe": "mock",
+            "caps": list(self._caps),
+            "thread": 1,
+            "types": 0,
+            "globals": [],
+            "handles": {"live": 0, "pinned": 0, "allocated": 0, "released": 0, "stale": 0, "dead": 0},
+            "dispatcher": {"posted": 0, "executed": 0, "faulted": 0, "pending": 0,
+                           "nested_pumps": 0, "nested_refused": 0, "owner_thread": 1},
+            "counters": {},
+            "trace": [],
+        }
 
     def _on_bye(self, frame) -> None:
         self._closed.set()

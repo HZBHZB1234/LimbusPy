@@ -387,6 +387,44 @@ def save_config(instance: Mod, state_dir: str, extra_state: Optional[dict] = Non
         pass  # state persistence is best effort
 
 
+@dataclass
+class PreparedMods:
+    """Result of importing every mod once, before any registration."""
+
+    manifests: List[ModManifest] = field(default_factory=list)
+    imported: List[tuple] = field(default_factory=list)      # (manifest, module, instance)
+    errors: Dict[str, str] = field(default_factory=dict)
+
+
+def prepare(mods_dir: str) -> PreparedMods:
+    """Discovers and imports mods so code-declared requirements join dependency ordering.
+
+    Importing mutates ``sys.modules``; callers that do not intend to register the mods (for
+    example the doctor) should call :func:`unload_module` for every prepared manifest afterwards.
+    """
+    result = PreparedMods()
+    result.manifests = discover(mods_dir)
+
+    for manifest in result.manifests:
+        try:
+            module = import_mod(manifest)
+            instance = instantiate_mod(module, manifest)
+        except Exception as exc:  # noqa: BLE001 - reported, never fatal
+            result.errors[manifest.name] = describe_failure(exc)
+            unload_module(manifest)
+            continue
+
+        if instance.requires:
+            merged = list(manifest.requires)
+            for requirement in instance.requires:
+                if requirement not in merged:
+                    merged.append(requirement)
+            manifest.requires = merged
+
+        result.imported.append((manifest, module, instance))
+    return result
+
+
 def describe_failure(exc: BaseException) -> str:
     return "".join(traceback.format_exception_only(type(exc), exc)).strip()
 

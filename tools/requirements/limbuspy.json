@@ -1,0 +1,133 @@
+{
+  "name": "limbuspy",
+  "description": "APIs LimbusPy promises to its users. gen_limbuspy_stubs.py --requirements reports drift.",
+  "types": [
+    {
+      "type": "BattleUnitModel",
+      "members": [
+        "Hp",
+        "MaxHp",
+        "Mp",
+        "Level",
+        "Position",
+        "InstanceID",
+        "prop:Hp",
+        "prop:MaxHp",
+        "prop:Mp",
+        "prop:Level",
+        "field:_instanceID",
+        "field:_passiveDetail",
+        "field:_buffDetail",
+        "IsAlly",
+        "IsOpponent",
+        "GetOpponentFaction",
+        "HasUnitKeyword",
+        "GetAtkResistValueByType",
+        "GetAttributeResistValueByType",
+        "AddPassive",
+        "GetActivatedBuffModels",
+        "DidActionPrevTurn"
+      ]
+    },
+    {
+      "type": "SkillModel",
+      "members": [
+        "prop:CoinList",
+        "prop:SkillAbilityList",
+        "prop:skillData",
+        "field:_coinList",
+        "field:_skillAbilityList",
+        "GetID",
+        "GetSkillName",
+        "IsAttack",
+        "IsDefense",
+        "GetSkillAbilityScript",
+        "MakeCoinListCacheDirty"
+      ]
+    },
+    {
+      "type": "CoinModel",
+      "members": [
+        "prop:CoinAbilityList",
+        "prop:IsDestroyed",
+        "prop:IsSuccessAttack",
+        "field:_coinAbilityList",
+        "field:_isDestroyed",
+        "field:_result",
+        "Roll",
+        "GetCoinResult",
+        "GetScale",
+        "GetProb",
+        "IsHead",
+        "IsTail",
+        "CreateCoinAbility"
+      ]
+    },
+    {
+      "type": "BuffModel",
+      "members": [
+        "prop:BuffType",
+        "prop:VanilaMaxStack",
+        "prop:VanilaMaxTurn",
+        "field:_buffKeyword",
+        "field:_buffType",
+        "field:_buffData",
+        "GetCurrentStack",
+        "GetMaxStack",
+        "GetCurrentTurn",
+        "GetMaxTurn",
+        "GetMainKeyword",
+        "GetKeywordList",
+        "IsKeyword",
+        "GetName",
+        "SetMaxStackAndTurn",
+        "GetStack",
+        "GetTurn"
+      ]
+    },
+    {
+      "type": "BattleActionModel",
+      "members": [
+        "Sin",
+        "Model",
+        "Skill",
+        "SinAction",
+        "IsDone",
+        "GetMainTarget",
+        "GetTargetUnitModelList",
+        "HasMainTarget",
+        "AddTarget"
+      ]
+    },
+    {
+      "type": "PassiveDetail",
+      "members": [
+        "_passivelist",
+        "_egoPassiveList",
+        "PassiveList"
+      ]
+    },
+    {
+      "type": "PassiveModel",
+      "members": [
+        "_script",
+        "_owner"
+      ]
+    },
+    {
+      "type": "BattleObjectManager",
+      "members": [
+        "_allUnitDictionary",
+        "GetModel"
+      ]
+    },
+    {
+      "type": "StageModel",
+      "members": []
+    },
+    {
+      "type": "StageController",
+      "members": []
+    }
+  ]
+}

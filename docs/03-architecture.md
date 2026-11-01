@@ -103,11 +103,12 @@ TCP loopback 作为回退（调试、抓包）。
 
 | 部件 | 说明 |
 |---|---|
-| `limbuspy.bootstrap` | 被 supervisor spawn 时自举：连管道、加载 mods、跑事件循环、崩溃转储 |
+| `limbuspy.bootstrap` | 被 supervisor spawn 时自举：连管道、加载 mods、跑事件循环 |
 | `limbuspy.mod` | Mod 基类、装饰器、热重载代际、状态保持 |
 | `limbuspy.game.*` | 战斗 / 静态数据 / 资产 / 本地化 / 内容 API |
 | `PatchHub` | 表驱动泛化 Harmony 补丁（Python 声明 entry/exit，C# 不重编译即可增删） |
 | `ModularGlue` | 注册 `py`/`pyq`/`pycall` 到 Modular 四张表；`timingDict` 扩展 |
 | `SNAPSHOT` | 战斗状态扁平快照（减少往返） |
-| `tools/gen_limbuspy_stubs.py` | dump.cs → `.pyi` / 枚举 / 方法索引 / 能力清单 |
+| ~~`tools/gen_limbuspy_stubs.py`~~ | ✅ 已实现：dump.cs → methods.json / enums.py / types.pyi（curated 52 类 / 612 KB）/ caps.json |
+| ~~`limbuspy.il2cpp` · `limbuspy.devkit` · `limbuspy.cli`~~ | ✅ 已实现：索引查询、doctor 四段自检、`python -m limbuspy …` |
 

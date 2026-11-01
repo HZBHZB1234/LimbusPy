@@ -1,0 +1,43 @@
+# Types that get human-facing stubs (types.pyi) and capability checks.
+# One full type name per line. `#` starts a comment. Nested types of a listed type and the
+# listed type's base classes are pulled in automatically.
+#
+# Kept deliberately small: these are what mod authors actually touch. The full IL2CPP index
+# (methods.json) still contains every type - this list only decides what gets IDE hints
+# and what the requirements report polices.
+
+# --- battle runtime ---------------------------------------------------------------
+BattleUnitModel
+BattleUnitModel_Abnormality
+BattleUnitModel_Abnormality_Part
+CombatUnitModel
+SkillModel
+CoinModel
+BattleActionModel
+BattleActionModelManager
+SinActionModel
+UnitSinModel
+UnitInfomationStatusData.UnitStatusData
+
+# --- buffs / passives / abilities -------------------------------------------------
+BuffModel
+BuffDetail
+BuffInfo
+ResistDetail
+PassiveModel
+EgoPassiveModel
+PassiveDetail
+PassiveAbility
+SkillAbility
+CoinAbility
+SkillAbility_Empty
+CoinAbility_Empty
+AbilityData
+
+# --- stage / manager singletons ---------------------------------------------------
+BattleObjectManager
+StageModel
+StageController
+CharacterState
+ActionSlotDetail
+BattleSystemAbilityDetail

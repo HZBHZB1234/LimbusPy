@@ -99,6 +99,42 @@ namespace LimbusPy.Bridge.Tests
                     await peer.SendAsync(MsgType.Pong, cancellationToken).ConfigureAwait(false);
                     return;
 
+                case MsgType.Doctor:
+                {
+                    // Mirrors KernelHost.BuildDoctor() so limbuspy.devkit.doctor can be exercised.
+                    var doctorRequest = PeerConnection.DecodePayload(frame);
+                    var doctorId = Lpcp.GetLong(doctorRequest, "id", -1);
+                    var stats = _handles.Stats;
+                    var doctor = Lpcp.Map(
+                        "proto", ProtocolInfo.Version,
+                        "kernel", "0.1.0-test",
+                        "game", "harness",
+                        "stubs_build", "e6312d92",
+                        "connected", true,
+                        "generation", 1L,
+                        "pid", (long)Environment.ProcessId,
+                        "pipe", "harness",
+                        "caps", new object[] { Caps.ReflectManaged, Caps.ReflectField, Caps.HandleArena, Caps.HandlePinned },
+                        "thread", (long)Environment.CurrentManagedThreadId,
+                        "types", 3L,
+                        "globals", new object[0],
+                        "handles", Lpcp.Map(
+                            "live", (long)stats.Live,
+                            "pinned", (long)stats.Pinned,
+                            "allocated", stats.Allocated,
+                            "released", stats.Released,
+                            "stale", stats.StaleAccesses,
+                            "dead", stats.DeadObjects),
+                        "dispatcher", Lpcp.Map(
+                            "posted", 0L, "executed", 0L, "faulted", 0L, "pending", 0L,
+                            "nested_pumps", 0L, "nested_refused", 0L, "owner_thread", 1L),
+                        "counters", Counters.Snapshot(),
+                        "trace", new object[0]);
+                    await peer.SendAsync(MsgType.CallResult, Lpcp.OkResult(doctorId, doctor), cancellationToken)
+                        .ConfigureAwait(false);
+                    return;
+                }
+
                 case MsgType.Pong:
                     Counters.Increment("pong");
                     return;
