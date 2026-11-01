@@ -222,6 +222,33 @@ class HealTweak(Mod):
 - 能写回的类型：`void/bool/int/long/float/double/string/引用类型`；枚举/结构体只能观测。
 - 优先用 `@hook`（时机系统，批量异步）；补丁是同步阻塞的，只用于时机系统没有的缝。
 
+## 6.6 资产替换（`limbuspy.game.assets`）
+
+常规模组的主力：贴图/立绘/CG/BGM/文本替换。**完全不过桥**（游戏从磁盘加载 bundle），所以内核忙或游戏没开都能做。
+
+```python
+from limbuspy.game import assets
+
+bundle = assets.open("<某个>.bundle")
+bundle.objects                      # {"TextAsset": 1, "Texture2D": 4, "Sprite": 4, ...}
+text = bundle.get("TextAsset", "SkillData")
+raw = bundle.export(text)           # bytes
+
+patch = assets.Patch().replace("TextAsset", "SkillData", new_bytes)
+patch.apply(bundle)                 # {"applied": 1, "missing": 0}
+bundle.save("mods/my_mod/data.bundle")   # 游戏可直接加载的 bundle
+
+# 图片替换（需要 Pillow）
+assets.Patch().replace_image("Texture2D", "DUI_mode_2", "new.png").apply(bundle)
+```
+
+- UnityPy 是**可选依赖**：`import limbuspy.game.assets` 不花钱，真正用的时候才需要 `pip install UnityPy`，
+  缺了会给出可执行的提示而不是 traceback。
+- 自动设置 `UnityPy.config.FALLBACK_UNITY_VERSION = "6000.3.12f1"`（Limbus 的 Unity 6 构建）。
+- 找 bundle 用 catalog：`assets.catalog_lookup(catalog_path, r"dui_.*_assets_all_")`
+  （底层就是 `tools/parse_catalog.py`，**不要**去 grep catalog 二进制）。
+- 改完先 `reopen` 验证一遍再发布：`assets.open(saved).export(assets.open(saved).get(...)) == new_bytes`。
+
 ## 7. 调试
 
 ```powershell
