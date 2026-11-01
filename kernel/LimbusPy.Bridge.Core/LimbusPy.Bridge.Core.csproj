@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Unity-free core of the LimbusPy kernel.
+    Everything that can be tested without the game lives here:
+    framing, msgpack, protocol constants, handle table, peer connection, pipe/tcp transport.
+    The BepInEx plugin (../LimbusPy.Bridge) only wires this to Unity/IL2CPP.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>10</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>LimbusPy.Bridge.Core</AssemblyName>
+    <RootNamespace>LimbusPy.Bridge.Core</RootNamespace>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>
