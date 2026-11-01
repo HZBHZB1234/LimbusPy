@@ -18,7 +18,7 @@ class Context:
     """
 
     __slots__ = ("bridge", "mod", "timing", "gen", "event", "target", "snapshot", "effects",
-                 "state", "session", "_logger")
+                 "state", "session", "modular", "_logger")
 
     def __init__(self, bridge: Bridge, mod: str, timing: str = "", gen: int = 1,
                  event: Optional[dict] = None, state: Optional[dict] = None,
@@ -35,6 +35,8 @@ class Context:
         #: Game façade bound to this callback. A fresh session per callback means the value cache
         #: never leaks stale numbers into the next event.
         self.session = _make_session(bridge)
+        #: One-way compatibility layer (``ctx.modular.run("TIMING:WhenUse/...")``).
+        self.modular = _make_modular(self.session)
         self._logger = logger
 
     # -- reflection ---------------------------------------------------------------------
@@ -93,6 +95,17 @@ def _make_session(bridge):
 
         return Session(bridge)
     except Exception:  # noqa: BLE001 - the mod layer must not depend on the façade
+        return None
+
+
+def _make_modular(session):
+    if session is None:
+        return None
+    try:
+        from ..modular import Modular
+
+        return Modular(session)
+    except Exception:  # noqa: BLE001
         return None
 
 

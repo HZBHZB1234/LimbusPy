@@ -58,9 +58,11 @@ class Session:
         key = ("get", _key(ref), member)
         if key in self._cache:
             return self._cache[key]
+        wire = to_wire(ref)
         value = self.bridge.request(
             protocol.MsgType.CALL,
-            {"target": ref if isinstance(ref, dict) else "", "method": "reflect.get", "args": [ref, member]},
+            {"target": wire if isinstance(wire, dict) else "", "method": "reflect.get",
+             "args": [wire, member]},
             timeout=timeout,
         ).get("value")
         wrapped = wrap(self, value)
@@ -71,7 +73,7 @@ class Session:
         self._cache.pop(("get", _key(ref), member), None)
         result = self.bridge.request(
             protocol.MsgType.CALL,
-            {"target": "", "method": "reflect.set", "args": [ref, member, value]},
+            {"target": "", "method": "reflect.set", "args": [to_wire(ref), member, to_wire(value)]},
             timeout=timeout,
         ).get("value")
         return wrap(self, result)
@@ -80,14 +82,16 @@ class Session:
         key = ("call", _key(ref), member, len(args))
         if not args and key in self._cache:
             return self._cache[key]
-        result = self.bridge.call("", "reflect.invoke", ref, member, list(args), timeout=timeout)
+        wire_args = [to_wire(arg) for arg in args]
+        result = self.bridge.call("", "reflect.invoke", to_wire(ref), member, wire_args, timeout=timeout)
         wrapped = wrap(self, result)
         if not args:
             self._cache[key] = wrapped
         return wrapped
 
     def static(self, type_and_method: str, *args: Any, timeout: float = 5.0) -> Any:
-        return wrap(self, self.bridge.call("", type_and_method, *args, timeout=timeout))
+        return wrap(self, self.bridge.call("", type_and_method, *[to_wire(arg) for arg in args],
+                                           timeout=timeout))
 
     def global_ref(self, name: str) -> Dict[str, Any]:
         """A ``global:Name`` handle that the kernel resolves to a singleton."""
@@ -150,4 +154,25 @@ class Session:
 def _key(ref: Any) -> Any:
     if isinstance(ref, dict):
         return (ref.get("t"), ref.get("h"))
+    target = getattr(ref, "target", None)
+    if target is not None and isinstance(target, dict):
+        return (target.get("t"), target.get("h"))
     return ref
+
+
+def to_wire(value: Any) -> Any:
+    """Normalises a façade object (or a list of them) back into its wire representation.
+
+    Façade objects are ergonomic in Python but not encodable; every bridge call funnels through
+    here so ``ctx.call(unit, ...)`` works as naturally as ``ctx.call(unit.wire, ...)``.
+    """
+    if value is None:
+        return None
+    target = getattr(value, "target", None)
+    if target is not None and not isinstance(value, (dict, list, str, int, float, bool, bytes)):
+        return target
+    if isinstance(value, list):
+        return [to_wire(item) for item in value]
+    if isinstance(value, tuple):
+        return [to_wire(item) for item in value]
+    return value

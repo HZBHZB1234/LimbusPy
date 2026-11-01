@@ -220,11 +220,33 @@ python -m limbuspy.bootstrap --pipe limbuspy.<pid> --once
 
 ---
 
-## 8. 与 Modular 的双向关系
+## 8. 与 Modular 的关系（**单向**）
 
-- **Python → Modular**：`limbuspy.modular` 直接调用 Modular 的 consequence/acquirer，或执行指令串。
-- **Modular → Python**：内核注册 `py` / `pyq` / `pycall`，于是现有 Modular 内容里写
-  `Modular/TIMING:WhenUse/py(mymod.fn,MainTarget,3)` 就能调到你的 Python 函数。
-- 反过来不需要：Modular 不必知道 LimbusPy 存在。
+按设计裁决：**LimbusPy 兼容 Modular，Modular 不需要知道 LimbusPy 存在**。所以这里只有"用 Modular"这一个方向。
 
-**性能取向**：优先原生 hook（`@hook`），Modular 指令串是兼容层与逃生口（它有额外解析与派发开销）。
+```python
+from limbuspy.modular.dsl import script
+
+def on_hit(self, ctx):
+    m = ctx.modular                      # 或 Modular(ctx.session)
+    if not m.available:
+        return                           # 没装 Modular：原生 hook 照常工作
+
+    # 1) 直接跑一段 Modular 指令串（等价于脚本名里的 Modular/...）
+    m.run("TIMING:OnSucceedAttack(Head)/buff(MainTarget,SINKING,2,1)", unit=ctx.target)
+
+    # 2) 只调一个 consequence / acquirer
+    m.consequence("healhp", "MainTarget", 25, unit=ctx.target)
+    stacks = m.acquire("getbuffcount", "Self", "SINKING")
+
+    # 3) 用 builder 拼，避免手写分隔符
+    text = script().timing("WhenUse", crit=True).value(0, "getdmg").buff("MainTarget", "CHARGE", 1, 1).render()
+    m.run(text, unit=ctx.target)
+```
+
+实现方式：全程走反射调用 Modular 自己的对象（`MainClass.timingDict/consequenceDict/acquirerDict`、
+`ModularSA.SetupModular/Enact`、`IModularAcquirer.ExecuteAcquirer`），**没有编译期引用**——Modular 升级
+不会让内核的 dll 加载失败。查不到就 `available == False`，mod 优雅降级。
+
+**性能取向不变**：原生 `@hook` 是批量异步的；Modular 指令串是同步解析 + 派发，属于兼容层与逃生口，
+不要放进每回合高频路径。

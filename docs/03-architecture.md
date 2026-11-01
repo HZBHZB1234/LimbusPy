@@ -108,7 +108,8 @@ TCP loopback 作为回退（调试、抓包）。
 | ~~`limbuspy.game` 战斗 façade~~ | ✅ `Battle`/`Unit`/`Skill`/`Coin`/`Buff`/`Action` + SNAPSHOT；成员表 `members.py` 由 requirements 校验 |
 | `limbuspy.game.statics/assets/locale/content` | 静态数据 / 资产 / 本地化 / 内容（纯 Python，不需要过桥） |
 | ~~`PatchHub`~~ | ✅ 已实现（`LimbusPy.Bridge.Harmony`）：表驱动 Harmony 补丁，prefix/postfix、fail-open、按 binding 摘除 |
-| `ModularGlue` | 注册 `py`/`pyq`/`pycall` 到 Modular 四张表；`timingDict` 扩展（下一步，独立程序集） |
+| ~~`limbuspy.modular`~~ | ✅ 单向兼容（Python→Modular）：反射调 `ModularSA`/`acquirerDict`，无编译期依赖 |
+| `ModularGlue`（可选） | 反向（Modular→Python）的 `py`/`pyq` 需独立程序集引用 Modular；按设计裁决非必需，v1.1 可选 |
 | `SNAPSHOT` | 战斗状态扁平快照（减少往返） |
 | ~~`tools/gen_limbuspy_stubs.py`~~ | ✅ 已实现：dump.cs → methods.json / enums.py / types.pyi（curated 52 类 / 612 KB）/ caps.json |
 | ~~`limbuspy.il2cpp` · `limbuspy.devkit` · `limbuspy.cli`~~ | ✅ 已实现：索引查询、doctor 四段自检、`python -m limbuspy …` |

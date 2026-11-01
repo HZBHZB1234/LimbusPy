@@ -449,7 +449,8 @@ def test_context_exposes_a_game_session(env_factory):
         @hook("OnSucceedAttack")
         def on_hit(self, ctx):
             ctx.call("", "mark", type(ctx.session).__name__)
+            ctx.call("", "mark", type(ctx.modular).__name__)
     """
     env = env_factory({"sessioned": mod})
     env.emit([{"timing": "OnSucceedAttack"}])
-    assert env.calls == [("Session",)]
+    assert env.calls == [("Session",), ("Modular",)]
