@@ -49,6 +49,7 @@ class MsgType(IntEnum):
     ERROR = 0x13
     DOCTOR = 0x14
     BYE = 0x15
+    SNAPSHOT = 0x16
 
 
 #: Messages that carry an ``id`` and expect a CALLRESULT back (docs §3).
@@ -61,6 +62,7 @@ REQUEST_MESSAGES = frozenset(
         MsgType.REGISTRY_DEL,
         MsgType.STATE,
         MsgType.DOCTOR,
+        MsgType.SNAPSHOT,
     }
 )
 
@@ -96,7 +98,7 @@ class Caps:
     BUDGET_FRAME = "budget.frame"
 
 
-PROTOCOL_VERSION = "1.0"
+PROTOCOL_VERSION = "1.1"
 PROTOCOL_MAJOR = 1
 
 #: Handle kinds as they appear on the wire (docs §4.1).

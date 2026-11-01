@@ -495,6 +495,54 @@ def run_live(checker: Checker) -> None:
         except ImportError as exc:  # pragma: no cover - limbuspy must be importable here
             checker.check("doctor: import", lambda: (_ for _ in ()).throw(AssertionError(str(exc))))
 
+        # -- limbuspy.game façade (against the game-shaped harness model) ------------
+        from limbuspy.game import Session as GameSession
+        from limbuspy.game import battle as game_battle
+
+        game = GameSession(bridge)
+        current = game_battle.current(game)
+
+        checker.eq("game: round from snapshot", current.round, 3)
+        checker.eq("game: wave from snapshot", current.wave, 1)
+        checker.eq("game: unit count", len(current.units), 4)
+        checker.eq("game: player count", len(current.player_units), 2)
+        checker.eq("game: enemy count", len(current.enemy_units), 2)
+
+        hero = current.unit(101)
+        checker.eq("game: unit lookup by instance id", hero is not None, True)
+        checker.eq("game: hp comes from the snapshot (no round trip)", hero.hp, 40)
+        checker.eq("game: max_hp", hero.max_hp, 40)
+        checker.eq("game: instance_id", hero.instance_id, 101)
+        checker.eq("game: origin_id", hero.origin_id, 1001)
+        checker.eq("game: hp_ratio", round(hero.hp_ratio, 3), 1.0)
+
+        sinking = hero.buff("SINKING")
+        checker.eq("game: buff lookup by keyword", sinking is not None, True)
+        checker.eq("game: buff stack", sinking.stack, 3)
+        checker.eq("game: buff turn", sinking.turn, 2)
+        checker.eq("game: buff keyword", sinking.keyword, "SINKING")
+        checker.eq("game: buff_stack helper", hero.buff_stack("CHARGE"), 5)
+        checker.eq("game: missing buff returns 0", hero.buff_stack("NOPE"), 0)
+        checker.eq("game: all buffs", len(hero.buffs), 2)
+
+        checker.eq("game: manager.GetModel", current.manager().model(201).instance_id, 201)
+        dead = [unit.instance_id for unit in current.units if unit.is_dead]
+        checker.eq("game: dead unit flagged", dead, [202])
+
+        from limbuspy.game import Skill
+
+        raw_skills = bridge.call("k", "reflect.get", hero.wire, "Skills")
+        first_skill = game.coerce(raw_skills[0], Skill) if raw_skills else None
+        checker.eq("game: skill from reflection", first_skill.skill_id, 601101)
+        checker.eq("game: skill name", first_skill.name, "Slash")
+        checker.eq("game: skill coin count", first_skill.coin_count, 2)
+        coins = first_skill.coins
+        checker.eq("game: coins", len(coins), 2)
+        checker.eq("game: coin head", coins[0].is_head(), True)
+        checker.eq("game: coin tail", coins[1].is_tail(), True)
+        checker.eq("game: coin scale", coins[1].scale, 4)
+        checker.eq("game: coin by index", first_skill.coin(0).scale, 5)
+
         # -- counters were exercised -------------------------------------------------
         stats = bridge.stats()
         checker.eq("live: transport is a pipe", str(stats["transport"]).startswith("pipe:"), True)

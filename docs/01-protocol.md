@@ -199,6 +199,23 @@ Py: ACT {seq:42, actions:[
 - **fail-open（硬规则）**：Python 超时、抛错、内核重入被拒 → 保留原行为（prefix 继续、postfix 原结果），只计数不外抛。游戏不会因为脚本补丁而崩或卡。
 - 同一方法上的多个 binding 共享一个 Harmony 补丁；`PATCH_DEL` 只摘 binding，**不 unpatch 方法**——避免连带摘掉别人的补丁。
 
+## 6.4 战斗快照（`0x16 SNAPSHOT`）
+
+遍历战场不能每个单位一次往返。内核走一遍 `BattleObjectManager._allUnitDictionary`，返回扁平的、可过桥的描述：
+
+```jsonc
+{"round": 3, "wave": 1, "units": [
+  {"ref": {"t":"unit","h":3221225473}, "instance_id": 101, "origin_id": 1001,
+   "hp": 40, "max_hp": 40, "mp": 3, "level": 30, "position": 1,
+   "is_dead": false, "is_break": false, "faction": "ENEMY", "is_player": true}
+]}
+```
+
+- 一次往返拿到全场；Python 侧 `unit.hp` 直接读快照，不再回问内核。
+- `is_player` 由 `GetOpponentFaction()` 反推（玩家单位的对手是 `ENEMY`）——这是**启发式**，靠枚举名比较，不依赖数值；语义若变由 doctor 报出。
+- 读不到的值给 `null`（例如 `Level` 在游戏里是 `ObscuredInt` 结构体，值类型不过桥），Python 侧回落为按需往返。
+- 老内核没有这个能力：`limbuspy.game` 会退化为逐字段往返，不会失败（`caps` 里没有 `snapshot.v1` 时）。
+
 ## 7. 错误模型
 
 ```jsonc

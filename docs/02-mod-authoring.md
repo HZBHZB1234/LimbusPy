@@ -155,6 +155,26 @@ def damage_multiplier(self, ctx):
 
 ---
 
+## 6.2 读战场状态（`limbuspy.game`）
+
+```python
+from limbuspy.game import battle as gb
+
+def on_hit(self, ctx):
+    b = gb.current(ctx.session)     # 每次回调一个新的 Session；一次往返拿到全场（快照）
+    for unit in b.enemy_units:
+        if unit.hp_ratio < 0.3:
+            sinking = unit.buff("SINKING")     # 按关键字取 buff
+            stack = sinking.stack if sinking else 0
+            self.log("%s hp=%s/%s sinking=%s" % (unit.instance_id, unit.hp, unit.max_hp, stack))
+```
+
+要点：
+- `b.player_units` / `b.enemy_units` / `b.alive_units` / `b.unit(instance_id)` 来自**快照**，`unit.hp`、`unit.max_hp`、`unit.instance_id` 这些**不再往返**。
+- `unit.buffs`、`skill.coins` 这类需要调游戏的成员才往返，且按会话缓存（同一个 hook 内只查一次）。
+- 所有成员名都在 `limbuspy/game/members.py` 里，且被 `tools/requirements/limbuspy.json` 对着真实 dump 校验；写错名字 `doctor` 会报，`LIMBUSPY_STRICT=1` 时直接抛错。
+- 想读没包装的东西？`unit.get("某成员")` / `unit.call("某方法", 1, 2)` / `unit.set(...)` 就是逃生口。
+
 ## 6.5 Harmony 补丁（原生钩子的最后一公里）
 
 时机系统覆盖不到的方法，可以直接打补丁：

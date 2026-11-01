@@ -10,6 +10,7 @@ using LimbusPy.Bridge.Core.Framing;
 using LimbusPy.Bridge.Core.Protocol;
 using LimbusPy.Bridge.Core.Reflect;
 using LimbusPy.Bridge.Core.Transport;
+using LimbusPy.Bridge.Core.Snapshot;
 using LimbusPy.Bridge.Patching;
 
 namespace LimbusPy.Bridge.Runtime
@@ -31,6 +32,7 @@ namespace LimbusPy.Bridge.Runtime
         private readonly InteropTypeIndex _types;
         private readonly GlobalRegistry _globals;
         private readonly HarmonyPatchHub _patches;
+        private readonly SnapshotService _snapshot;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
         /// <summary>Re-entry guard for kernel->Python->kernel->... cycles (protocol §6.2).</summary>
@@ -52,7 +54,8 @@ namespace LimbusPy.Bridge.Runtime
             Il2CppRefStore store,
             InteropTypeIndex types,
             GlobalRegistry globals,
-            HarmonyPatchHub patches)
+            HarmonyPatchHub patches,
+            SnapshotService snapshot)
         {
             _settings = settings;
             _log = log;
@@ -63,6 +66,7 @@ namespace LimbusPy.Bridge.Runtime
             _types = types;
             _globals = globals;
             _patches = patches;
+            _snapshot = snapshot;
             if (_patches != null) _patches.Dispatch = DispatchToPython;
         }
 
@@ -340,6 +344,14 @@ namespace LimbusPy.Bridge.Runtime
 
                 case MsgType.Doctor:
                     return Lpcp.OkResult(id, BuildDoctor());
+
+                case MsgType.Snapshot:
+                {
+                    if (_snapshot == null) throw LpcpFault.Unsupported("snapshot service is not available");
+                    var battle = _snapshot.Capture();
+                    Counters.Increment("snapshot");
+                    return Lpcp.OkResult(id, battle);
+                }
 
                 case MsgType.Stats:
                     return Lpcp.OkResult(id, BuildStats());

@@ -66,6 +66,7 @@ class MockKernel:
         caps: Optional[List[str]] = None,
         game_build: str = "mock",
         game_version: str = "1.84.0-mock",
+        battle: Optional[dict] = None,
     ) -> None:
         self.bridge = Bridge(transport, name="mock-kernel").start()
         self.handles = MockHandles()
@@ -77,12 +78,15 @@ class MockKernel:
         ])
         self._game_build = game_build
         self._game_version = game_version
+        #: What SNAPSHOT returns (see limbuspy.game.battle).
+        self.battle: dict = dict(battle or {"round": 1, "wave": 1, "units": []})
         self.ready: Optional[dict] = None
         self._closed = threading.Event()
         self.bridge.on_request(MsgType.CALL, self._handle_call)
         self.bridge.on_request(MsgType.DOCTOR, self._handle_doctor)
         self.bridge.on_request(MsgType.PATCH_ADD, self._handle_patch_add)
         self.bridge.on_request(MsgType.PATCH_DEL, self._handle_patch_del)
+        self.bridge.on_request(MsgType.SNAPSHOT, self._handle_snapshot)
         self.bridge.on(MsgType.BYE, self._on_bye)
         self.bridge.on(MsgType.LOG, self._on_log)
         self.logs: List[dict] = []
@@ -161,6 +165,9 @@ class MockKernel:
         if not isinstance(args, list):
             raise BridgeError(protocol.ErrorCode.MARSHAL, "args must be a list")
         return handler(*args)
+
+    def _handle_snapshot(self, payload: dict) -> dict:
+        return dict(self.battle)
 
     def _handle_patch_add(self, payload: dict) -> dict:
         spec = payload.get("spec") if isinstance(payload.get("spec"), dict) else payload

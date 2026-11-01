@@ -9,6 +9,7 @@ using LimbusPy.Bridge.Core.Diagnostics;
 using LimbusPy.Bridge.Core.Framing;
 using LimbusPy.Bridge.Core.Protocol;
 using LimbusPy.Bridge.Core.Reflect;
+using LimbusPy.Bridge.Core.Snapshot;
 using LimbusPy.Bridge.Patching;
 using LimbusPy.Bridge.Tests.Fixtures;
 
@@ -28,18 +29,55 @@ namespace LimbusPy.Bridge.Tests
         private readonly CallMarshaller _marshaller;
         private readonly ReflectionInvoker _invoker;
         private HarmonyPatchHub _patches;
+        private readonly GlobalRegistry _globals;
+        private readonly SnapshotService _snapshot;
+        private readonly TestBattleObjectManager _battle;
 
         public TestKernel()
         {
             _marshaller = new CallMarshaller(this);
+
+            // Game-shaped battle behind a manager facade, exposed as global:BattleObjectManager
+            // exactly like the real kernel exposes its singletons.
+            _battle = BuildBattle();
+            _globals = new GlobalRegistry().Register("BattleObjectManager", () => _battle);
+
             _invoker = new ReflectionInvoker(
                 new AssemblyTypeIndex("harness", typeof(TestUnit).Assembly),
-                new GlobalRegistry(),
+                _globals,
                 _marshaller);
 
             _methods = BuildMethods();
             _patches = new HarmonyPatchHub("LimbusPy.Tests.PatchHub", new AssemblyTypeIndex("harness", typeof(TestUnit).Assembly), _marshaller);
             _patches.Dispatch = DispatchToPython;
+
+            _snapshot = new SnapshotService(_globals, _marshaller, this);
+        }
+
+        private static TestBattleObjectManager BuildBattle()
+        {
+            var manager = new TestBattleObjectManager();
+
+            var hero = new TestBattleUnit(101, 1001, 40) { Position = 1, Faction = TestUnitFaction.PLAYER };
+            hero.Buffs.Add(new TestBattleBuff("SINKING", 3, 2));
+            hero.Buffs.Add(new TestBattleBuff("CHARGE", 5, 1));
+            var heroSkill = new TestBattleSkill(601101, "Slash");
+            heroSkill.CoinList.Add(new TestBattleCoin(true, 5));
+            heroSkill.CoinList.Add(new TestBattleCoin(false, 4));
+            hero.Skills.Add(heroSkill);
+            manager.Add(hero);
+
+            var ally = new TestBattleUnit(102, 1002, 55) { Position = 2, Faction = TestUnitFaction.PLAYER };
+            manager.Add(ally);
+
+            var enemy = new TestBattleUnit(201, 2001, 300) { Position = 4, Faction = TestUnitFaction.ENEMY };
+            enemy.Buffs.Add(new TestBattleBuff("VULNERABLE", 2, 3));
+            manager.Add(enemy);
+
+            var dying = new TestBattleUnit(202, 2002, 0) { Position = 5, Faction = TestUnitFaction.ENEMY };
+            manager.Add(dying);
+
+            return manager;
         }
 
         public Counters Counters { get; } = new Counters();
@@ -137,6 +175,19 @@ namespace LimbusPy.Bridge.Tests
                         "trace", new object[0]);
                     await peer.SendAsync(MsgType.CallResult, Lpcp.OkResult(doctorId, doctor), cancellationToken)
                         .ConfigureAwait(false);
+                    return;
+                }
+
+                case MsgType.Snapshot:
+                {
+                    var request = PeerConnection.DecodePayload(frame);
+                    var requestId = Lpcp.GetLong(request, "id", -1);
+                    var battle = _snapshot.Capture();
+                    battle["round"] = 3L;
+                    battle["wave"] = 1L;
+                    Counters.Increment("snapshot");
+                    await peer.SendAsync(MsgType.CallResult, Lpcp.OkResult(requestId, battle),
+                        cancellationToken).ConfigureAwait(false);
                     return;
                 }
 

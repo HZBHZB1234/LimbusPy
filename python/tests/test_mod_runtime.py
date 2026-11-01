@@ -439,3 +439,17 @@ def test_stats_are_serialisable(env_factory):
     assert codec.unpack(codec.pack(stats))["mods"] == ["simple"]
 
 
+
+
+def test_context_exposes_a_game_session(env_factory):
+    mod = """
+    from limbuspy.mod import Mod, hook
+
+    class UsesSession(Mod):
+        @hook("OnSucceedAttack")
+        def on_hit(self, ctx):
+            ctx.call("", "mark", type(ctx.session).__name__)
+    """
+    env = env_factory({"sessioned": mod})
+    env.emit([{"timing": "OnSucceedAttack"}])
+    assert env.calls == [("Session",)]

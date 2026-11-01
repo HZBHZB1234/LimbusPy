@@ -7,6 +7,7 @@ using Il2CppInterop.Runtime.Injection;
 using LimbusPy.Bridge.Core.Bridge;
 using LimbusPy.Bridge.Core.Protocol;
 using LimbusPy.Bridge.Core.Reflect;
+using LimbusPy.Bridge.Core.Snapshot;
 using LimbusPy.Bridge.Patching;
 using LimbusPy.Bridge.Runtime;
 using UnityEngine;
@@ -94,8 +95,10 @@ namespace LimbusPy.Bridge
                 TimeoutMs = Math.Max(1, Settings.SyncCallTimeoutMs.Value),
             };
 
-            // 5. Bridge host.
-            Host = new KernelHost(Settings, LogLine, Dispatcher, Marshaller, Invoker, Store, Types, Globals, Patches);
+            // 5. Battle snapshot service + bridge host.
+            var snapshot = new SnapshotService(Globals, Marshaller, Store);
+            Host = new KernelHost(Settings, LogLine, Dispatcher, Marshaller, Invoker, Store, Types, Globals,
+                Patches, snapshot);
             Host.SetGameInfo(SafeApplicationVersion(), SafeUnityVersion());
             Host.Start();
 

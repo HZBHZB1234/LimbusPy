@@ -39,7 +39,7 @@ namespace LimbusPy.Bridge.Core.Protocol
     public static class ProtocolInfo
     {
         /// <summary>Protocol version spoken by this build. Python refuses anything whose major differs.</summary>
-        public const string Version = "1.0";
+        public const string Version = "1.1";
         public const int Major = 1;
 
         public static bool IsCompatible(string peerVersion)

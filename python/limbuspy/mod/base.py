@@ -40,6 +40,7 @@ class Mod:
         self.logger = None
         #: Patch ids this mod installed; removed automatically before a reload.
         self._patches: List[str] = []
+        self._session = None
 
     # -- lifecycle ----------------------------------------------------------------------
 
@@ -57,6 +58,18 @@ class Mod:
         """Restores what ``on_save`` returned."""
 
     # -- helpers ------------------------------------------------------------------------
+
+    @property
+    def session(self):
+        """A game façade for setup work outside hooks (hooks get ``ctx.session`` instead)."""
+        if self._session is None and self.bridge is not None:
+            try:
+                from ..game import Session
+
+                self._session = Session(self.bridge)
+            except Exception:  # noqa: BLE001
+                self._session = None
+        return self._session
 
     # -- harmony patches ----------------------------------------------------------------
 

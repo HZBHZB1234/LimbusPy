@@ -18,7 +18,7 @@ class Context:
     """
 
     __slots__ = ("bridge", "mod", "timing", "gen", "event", "target", "snapshot", "effects",
-                 "state", "_logger")
+                 "state", "session", "_logger")
 
     def __init__(self, bridge: Bridge, mod: str, timing: str = "", gen: int = 1,
                  event: Optional[dict] = None, state: Optional[dict] = None,
@@ -32,6 +32,9 @@ class Context:
         self.snapshot = self.event.get("snapshot")
         self.effects: List[dict] = []
         self.state = state if state is not None else {}
+        #: Game façade bound to this callback. A fresh session per callback means the value cache
+        #: never leaks stale numbers into the next event.
+        self.session = _make_session(bridge)
         self._logger = logger
 
     # -- reflection ---------------------------------------------------------------------
@@ -82,6 +85,15 @@ class Context:
     @property
     def is_enemy_turn(self) -> bool:
         return bool(self.event.get("enemy_turn"))
+
+
+def _make_session(bridge):
+    try:
+        from ..game import Session
+
+        return Session(bridge)
+    except Exception:  # noqa: BLE001 - the mod layer must not depend on the façade
+        return None
 
 
 def _extract_target(event: dict) -> Any:

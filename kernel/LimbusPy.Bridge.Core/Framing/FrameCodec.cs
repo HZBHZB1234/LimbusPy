@@ -30,6 +30,7 @@ namespace LimbusPy.Bridge.Core.Framing
         Error = 0x13,
         Doctor = 0x14,
         Bye = 0x15,
+        Snapshot = 0x16,
     }
 
     public readonly struct Frame
