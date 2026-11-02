@@ -183,15 +183,16 @@ Py: ACT {seq:42, actions:[
 `PATCH_ADD` 让 Python 给**任意方法**装 Harmony 补丁，而不需要重新编译 C#：
 
 ```jsonc
-{"id": 7, "owner": "BattleUnitModel", "method": "Heal", "kind": "postfix",
- "fn": "mymod.on_heal", "sig": ["int"]}     // sig 用于重载消歧；不唯一时内核拒绝猜
+{"id": 7, "owner": "BattleUnitModel", "method": "GetTakeHpDmgAdder", "kind": "postfix",
+ "fn": "mymod.on_take_damage_adder", "sig": []}   // sig 用于重载消歧；方法无参时可空、重载时必须给
 ```
 
 补丁触发时，内核以 `SYNCALL` 调 `fn`，`ctx` 形如：
 
 ```jsonc
-{"patch": "BattleUnitModel.Heal#1", "kind": "postfix", "target": "int Heal(int)",
- "instance": {"t":"unit","h":11}, "args": [10], "result": 60}
+{"patch": "BattleUnitModel.GetTakeHpDmgAdder#1", "kind": "postfix",
+ "target": "int GetTakeHpDmgAdder()",
+ "instance": {"t":"unit","h":11}, "args": [], "result": 7}
 ```
 
 - **postfix**：Python 返回值替换方法返回值（可写回：`void/bool/int/long/float/double/string/引用类型`；枚举/结构体只能观测）。

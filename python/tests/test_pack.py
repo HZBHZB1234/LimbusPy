@@ -49,6 +49,13 @@ def test_system_layout_is_complete_and_healthy(tmp_path):
     assert os.path.isdir(os.path.join(layout, "python", "limbuspy", "game"))
     assert os.path.isfile(os.path.join(layout, "mods", "_example", "__init__.py"))
 
+    # 完整示例随包分发，放在 `_samples/`（加载器跳过 `_` 前缀）→ 开箱可见但不会改游戏行为。
+    sample = os.path.join(layout, "mods", "_samples", "sinking_tide", "__init__.py")
+    if os.path.isdir(os.path.join(ROOT, "examples", "sinking_tide")):
+        assert os.path.isfile(sample)
+        assert os.path.isfile(os.path.join(layout, "mods", "_samples", "sinking_tide", "data",
+                                           "BuffData.json"))
+
     manifest = json.load(open(os.path.join(layout, "manifest.json"), encoding="utf-8"))
     assert manifest["variant"] == "system"
     assert manifest["complete"] is True

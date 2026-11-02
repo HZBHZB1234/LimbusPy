@@ -96,21 +96,34 @@ TCP loopback 作为回退（调试、抓包）。
 
 设计取舍：
 - **不编译期引用 Lethe / ModularSkillScripts**，只声明 soft dependency，Glue 走反射 → 它们升级不会让内核dll 加载失败。
-- **只广告已实现能力**（`reflect.managed` / `reflect.field` / `handle.arena` / `handle.pinned` / `budget.frame`），`patch.table`、`modular.registry`、`snapshot.v1` 未实现前不谎报，Python 侧据此降级。
+- **只广告已实现能力**（`reflect.managed` / `reflect.field` / `handle.arena` / `handle.pinned` /
+  `budget.frame`，以及服务存在时才广告的 `snapshot.v1` / `patch.table`），`modular.registry` 未实现前不谎报，
+  Python 侧据此降级。
 - 回复统一 `Task.Run` 写出，不在主线程上做管道 IO。
 
-## 7. 待实现（下一步）
+## 7. 实现状态与下一步
 
-| 部件 | 说明 |
+### 7.1 已完成（真机可用，编译级验证）
+
+| 部件 | 状态 |
 |---|---|
-| `limbuspy.bootstrap` | 被 supervisor spawn 时自举：连管道、加载 mods、跑事件循环 |
-| `limbuspy.mod` | Mod 基类、装饰器、热重载代际、状态保持 |
-| ~~`limbuspy.game` 战斗 façade~~ | ✅ `Battle`/`Unit`/`Skill`/`Coin`/`Buff`/`Action` + SNAPSHOT；成员表 `members.py` 由 requirements 校验 |
-| `limbuspy.game.statics/assets/locale/content` | 静态数据 / 资产 / 本地化 / 内容（纯 Python，不需要过桥） |
-| ~~`PatchHub`~~ | ✅ 已实现（`LimbusPy.Bridge.Harmony`）：表驱动 Harmony 补丁，prefix/postfix、fail-open、按 binding 摘除 |
-| ~~`limbuspy.modular`~~ | ✅ 单向兼容（Python→Modular）：反射调 `ModularSA`/`acquirerDict`，无编译期依赖 |
-| `ModularGlue`（可选） | 反向（Modular→Python）的 `py`/`pyq` 需独立程序集引用 Modular；按设计裁决非必需，v1.1 可选 |
-| `SNAPSHOT` | 战斗状态扁平快照（减少往返） |
-| ~~`tools/gen_limbuspy_stubs.py`~~ | ✅ 已实现：dump.cs → methods.json / enums.py / types.pyi（curated 52 类 / 612 KB）/ caps.json |
-| ~~`limbuspy.il2cpp` · `limbuspy.devkit` · `limbuspy.cli`~~ | ✅ 已实现：索引查询、doctor 四段自检、`python -m limbuspy …` |
+| 传输 / 帧 / 码编解码 / 句柄表 / 主线程调度 | ✅ 双单向管道、LPCP v1.1、arena+pinned、`MainThreadDispatcher` |
+| 反射（`reflect.get/set/invoke/types`，含重载打分与枚举按名过桥） | ✅ 一致性测试 196 项全绿 |
+| `PatchHub`（表驱动 Harmony，prefix + 7 类 postfix，fail-open，按 binding 摘除） | ✅ 派发即 `SYNCALL`，见 §6.3 |
+| `SNAPSHOT`（`_allUnitDictionary` → 扁平 msgpack） | ✅ 内核已实现并**已广告** `snapshot.v1` |
+| `@expose`（Python 函数被内核按名调用） | ✅ 供 REPL / 其它 mod / 未来 Modular `py()` |
+| `limbuspy.bootstrap` / `mod`（装饰器、代际、热重载、状态保持、配置） | ✅ mock kernel + C# harness 双端验证 |
+| `limbuspy.game`（battle façade / statics / assets） | ✅ 成员表由 requirements 对着真 dump 校验 |
+| `limbuspy.modular`（单向：Python → Modular） | ✅ 全反射，无编译期依赖 |
+| `limbuspy.il2cpp` / `devkit` / `cli` / stubgen / pack | ✅ `python -m limbuspy …` |
+
+### 7.2 未接入（已知缺口，按优先级）
+
+| 缺口 | 影响 | 计划 |
+|---|---|---|
+| **时机事件源（`EVENTBATCH`）** | `@hook("OnSucceedAttack")` 这类时机回调在真机上**不会触发**（只在 mock/harness 里跑通）；`@hook(sync=…)` 的同步泳道同理要由补丁 binding 指向它才走得通 | 挂一小组合**中心通知方法**（`BattleUnitModel.OnSucceedAttack` / `OnChangeHp` / `OnDie` / `OnBreak` / `OnRollOneCoin_AfterAttack` / `OnStartTurn_*` …）——Modular 的 205 KB 补丁也正是挂这些点。内核侧本地攒批、每帧 `Update()` 末尾发一次 `EVENTBATCH`，**不依赖 Modular 是否存在** |
+| `ModularGlue`（反向，Modular → Python） | Modular 指令串里的 `py(...)` 调不到 Python（`REGISTRY_ADD` 目前返回 `unsupported`） | 独立程序集引用 Modular，把 `consequenceDict`/`acquirerDict`/`luaFunctionDict` 转发到 `SYNCALL`；按设计裁决非必需 |
+| 真实 `ModularSA.Enact` 协同时序 | Python 直接 `run()` 一条指令串时，`activationTiming` 门控已处理，但嵌套派发顺序未在真机验证 | 与事件源一起验证 |
+| 富内容层（`locale` / `content` / RPG / 镜像） | 不在 v1 范围 | v2 |
+
 

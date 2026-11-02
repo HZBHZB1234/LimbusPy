@@ -206,14 +206,25 @@ patch.save("mods/my_mod/patches.json")                 # 随 mod 发布
 ```python
 from limbuspy.mod import Mod, expose
 
-class HealTweak(Mod):
+class DamageTweak(Mod):
     def on_load(self):
-        # 参数类型用于重载消歧；名字不唯一时内核拒绝猜，而不是打错方法
-        self.patch("BattleUnitModel", "Heal", "on_heal", kind="postfix", sig=["int"])
+        # 无参方法：sig 可省略。重载方法必须给 sig，内核拒绝猜（宁可不打，也不打错方法）。
+        self.patch("BattleUnitModel", "GetTakeHpDmgAdder",
+                   "on_take_damage_adder", kind="postfix")
 
-    @expose("on_heal")
-    def on_heal(self, ctx):
-        return (ctx.event.get("result") or 0) + 5     # 返回值 +5
+        # 观测：游戏里任意一次 HP 变化（含非本 mod 造成的）。prefix 返回 None = 继续原方法。
+        self.patch("BattleUnitModel", "OnChangeHp", "on_hp_changed", kind="prefix",
+                   sig=["int", "int", "DAMAGE_SOURCE_TYPE", "BATTLE_EVENT_TIMING",
+                        "BattleUnitModel", "BattleActionModel", "BUFF_UNIQUE_KEYWORD"])
+
+    @expose("on_take_damage_adder")
+    def on_take_damage_adder(self, ctx):
+        return (ctx.event.get("result") or 0) + 5        # 受到伤害 +5
+
+    @expose("on_hp_changed")
+    def on_hp_changed(self, ctx):
+        old, new = ctx.event["args"][0], ctx.event["args"][1]
+        self.log("hp %s → %s" % (old, new))
 ```
 
 - `kind="postfix"` 改写返回值；`kind="prefix"` 可跳过原方法（`return {"skip": True}`）或替换入参（`return {"args": [...]}`）。
@@ -221,6 +232,9 @@ class HealTweak(Mod):
 - **热重载安全**：`on_load` 里装的补丁在重载前会被 `unpatch_all()` 自动摘掉，旧代码不会在重载后被调用（`self._patches` 由基类维护）。
 - 能写回的类型：`void/bool/int/long/float/double/string/引用类型`；枚举/结构体只能观测。
 - 优先用 `@hook`（时机系统，批量异步）；补丁是同步阻塞的，只用于时机系统没有的缝。
+- **成员名必须对着 dump 写**（`tools/requirements/limbuspy.json` 会校验）。反例：旧版本本文写的
+  `BattleUnitModel.Heal` 在游戏里并不存在——真正的是 `HealTargetHp(...)`/`RecoverHp(...)`；能改伤害的
+  是 `GetTakeHpDmgAdder()`（无参 int）与 `GetAttackDmgAdder(action, target)`。
 
 ## 6.6 资产替换（`limbuspy.game.assets`）
 
@@ -301,3 +315,37 @@ def on_hit(self, ctx):
 
 **性能取向不变**：原生 `@hook` 是批量异步的；Modular 指令串是同步解析 + 派发，属于兼容层与逃生口，
 不要放进每回合高频路径。
+
+---
+
+## 9. 完整示例：`examples/sinking_tide`
+
+上面每节各讲一块，真正难的是**组合**。仓库里有一个跑得起来、且被测试盯着的完整示例：
+
+```
+LimbusPy/examples/sinking_tide/          # mod 本体（hook + 快照 + 反射 + 补丁 + 同步 + 静态表）
+LimbusPy/examples/run_sinking_tide.py    # 驱动器：合成战斗 + mock kernel，不需要开游戏
+LimbusPy/python/tests/test_example_mod.py # 把它当 mod 加载并断言行为
+```
+
+```powershell
+$env:PYTHONUTF8=1
+python LimbusPy/examples/run_sinking_tide.py       # 完整演示
+python LimbusPy/examples/run_sinking_tide.py --quiet
+python -m pytest LimbusPy/python/tests/test_example_mod.py -q
+```
+
+它做的事：敌人身上的 SINKING 叠层到了阈值、且血够少 → 走游戏自己的 `ChangeHp` 管线扣一次血，
+并把「谁被打了多少 / 叠层怎么涨 / 谁触发爆发」记成 `sinking_tide.report` 可查的报告；同一个
+mod 里还装了 `BattleUnitModel.OnChangeHp` 的补丁来监听全场 HP 变化，并用同步钩子返回伤害倍率。
+
+几个从示例里学得到的硬知识（都是踩过的）：
+
+- `BattleUnitModel.ChangeHp(value, ...)` 的 `value` 是**目标 HP 值**而不是增量
+  （基类 `ChangeStat.ChangeHp(int newHp, ...)`；游戏自己用 `ChangeHp(MaxHp, ...)` 回满血）。
+- 可选参数**必须显式给全**：内核按参数个数精确匹配重载，不会替你补默认值。
+- 枚举参数传**成员名**（`"PASSIVE"`、`"ON_SUCCESS_ATTACK"`），不要传数字。
+- 同步钩子 / 补丁回调里**只读内存**，别做任何 `ctx.call`（20 ms 预算，超了就落 fallback）。
+- 用 `unit.buff_stack("SINKING")` 而不是自己去碰 `GetActivatedBuffStack`：后者有 4 个重载，
+  且参数是枚举/枚举数组，反而容易选错。
+

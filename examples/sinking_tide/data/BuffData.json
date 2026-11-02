@@ -1,0 +1,7 @@
+{
+  "data": [
+    { "id": 42, "keyword": "Sinking", "buffType": "Negative", "maxStack": 99, "maxTurn": 99 },
+    { "id": 38, "keyword": "Combustion", "buffType": "Negative", "maxStack": 99, "maxTurn": 99 },
+    { "id": 1, "keyword": "Charge", "buffType": "Positive", "maxStack": 20, "maxTurn": 99 }
+  ]
+}

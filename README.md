@@ -27,16 +27,27 @@
 |---|---|
 | LPCP 协议 v1.0（帧、msgpack 子集、消息集、错误模型） | ✅ 冻结 |
 | `LimbusPy.Bridge.Core`（C#，**无 Unity 依赖**） | ✅ 帧编解码 / msgpack / 协议 / 句柄表 / PeerConnection / 传输 |
-| 反射层（`Core/Reflect`） | ✅ 类型索引 / 值封送 / 重载解析 / `Describe` |
+| 反射层（`Core/Reflect`） | ✅ 类型索引 / 值封送（枚举按名）/ 重载解析 / `Describe` |
 | Python `limbuspy.runtime` | ✅ codec / framing / protocol / transport / client / 错误模型 |
 | 跨语言一致性测试 `tools/conformance.py` | ✅ **196 项全过**（反射层、真实管道、并发乱序、句柄 arena、阻塞通道、**Harmony 补丁表**、doctor、协议不匹配、真实 bootstrap 进程 ↔ 内核） |
-| Python 单测 | ✅ 229 项 |
-| BepInEx 内核插件（管道/握手/主线程 pump/IL2CPP 句柄/supervisor） | ✅ 编译通过（0 warning） |
-| `limbuspy.bootstrap` / `limbuspy.mod`（自举 / Mod 基类 / 钩子 / 热重载） | ✅ 25 项 mod 层测试（含热重载代际、状态保持、失败隔离、补丁摘除） |
+| Python 单测 | ✅ 240 项（含示例 mod 的 11 项回归） |
+| BepInEx 内核插件（管道/握手/主线程 pump/IL2CPP 句柄/supervisor） | ✅ 编译通过（0 error） |
+| `limbuspy.bootstrap` / `limbuspy.mod`（自举 / Mod 基类 / 钩子 / 热重载） | ✅ 含热重载代际、状态保持、失败隔离、补丁摘除 |
 | 索引生成 + `limbuspy.il2cpp` + `devkit.doctor` + CLI | ✅ 真实 dump 26 126 类型 / 6 s；`python -m limbuspy doctor` |
 | 表驱动 Harmony 补丁（`LimbusPy.Bridge.Harmony` + `Mod.patch`） | ✅ prefix/postfix、fail-open、按 binding 摘除、重载自动摘 |
-| `limbuspy.game` 战斗 façade（`Battle`/`Unit`/`Skill`/`Coin`/`Buff`/`Action` + `ctx.session`） | ✅ 快照零往返读战场、成员名对着真实 dump 校验 |
+| `limbuspy.game` 战斗 façade / statics / assets | ✅ 快照零往返读战场、成员名对着真实 dump 校验、真 bundle 往返 |
 | `limbuspy.modular`（单向兼容：`run`/`consequence`/`acquire` + DSL builder） | ✅ 反射驱动，无编译期依赖，`available` 降级 |
+| **完整示例** `examples/sinking_tide` | ✅ 6 条通路组合 + 驱动器 + 回归测试（见 [`examples/`](examples/)） |
+
+### 真机通路状态（重要）
+
+| 通路 | 真机可用？ |
+|---|---|
+| 反射读写 / `@expose` / `SNAPSHOT` / Harmony 补丁回调 / 热重载 / 静态表与资产 | ✅ 内核已接线 |
+| **`@hook(时机)` 时机回调（`EVENTBATCH`）** | ❌ **内核尚无事件源**（只在 mock/harness 里跑通），下一步挂 `BattleUnitModel.OnSucceedAttack` 等中心通知方法 |
+| Modular → Python（`REGISTRY_ADD`） | ❌ 返回 `unsupported`（按裁决非必需） |
+
+细节与计划见 [`docs/03-architecture.md §7`](docs/03-architecture.md)。
 
 ---
 
@@ -47,28 +58,28 @@ LimbusPy/
 ├─ docs/                        协议与架构文档
 ├─ kernel/
 │  ├─ LimbusPy.Bridge.Core/     Unity 无关的核心（可单测）
-│  └─ LimbusPy.Bridge/          BepInEx 6 IL2CPP 插件（Unity 接线，唯一需编译的产物）
+│  ├─ LimbusPy.Bridge.Harmony/  表驱动 Harmony 补丁中心
+│  └─ LimbusPy.Bridge/          BepInEx 6 IL2CPP 插件（Unity 接线）
 ├─ python/
-│  ├─ limbuspy/                 运行时装包
-│  │  ├─ runtime/               传输 / 编解码 / 协议 / 客户端
-│  │  ├─ _mock/                 无游戏替身（MockKernel）
-│  │  └─ …                      后续：il2cpp / game / modular / mod / devkit
-│  └─ tests/                    pytest（不依赖游戏）
+│  ├─ limbuspy/                 运行时包：runtime / il2cpp / game / modular / mod / devkit / cli
+│  └─ tests/                    pytest（不依赖游戏，240 项）
+├─ examples/                    可运行的完整示例（sinking_tide + 驱动器）
 ├─ tests/LimbusPy.Bridge.Tests/ C# 内核 harness（真实管道服务端，供 conformance 驱动）
-└─ tools/conformance.py         跨语言一致性测试
+└─ tools/                       conformance / stubgen / pack / extract_statics
 ```
 
 ---
 
 ## 文档
 - [`docs/01-protocol.md`](docs/01-protocol.md) 线协议 v1.0（冻结）
-- [`docs/02-mod-authoring.md`](docs/02-mod-authoring.md) **mod 作者指南**（装饰器/ctx/热重载/调试）
-- [`docs/03-architecture.md`](docs/03-architecture.md) 分层与内核插件
+- [`docs/02-mod-authoring.md`](docs/02-mod-authoring.md) **mod 作者指南**（装饰器/ctx/热重载/调试/**§9 完整示例**）
+- [`docs/03-architecture.md`](docs/03-architecture.md) 分层与内核插件、实现状态与缺口
 - [`docs/04-distribution.md`](docs/04-distribution.md) **两个分发构建与安装/升级**
+- [`examples/README.md`](examples/README.md) 可运行示例一览
 
 ## 工具链
 
-`powershell
+```powershell
 # 从 Il2CppDumper 的 dump.cs 生成索引 + 枚举 + 类型存根 + 能力报告（约 6 s / 26k 类型）
 python -m limbuspy stubs --dump <dump.cs> --out python/limbuspy/_gen
 
@@ -76,12 +87,14 @@ python -m limbuspy stubs --dump <dump.cs> --out python/limbuspy/_gen
 python -m limbuspy doctor                       # 离线
 python -m limbuspy doctor --pipe limbuspy.<pid> # 连运行中的内核（含 DOCTOR 实报）
 
-# 查索引 / 列 mod / 版本
+# 查索引 / 列 mod / 静态表 / 打包
 python -m limbuspy index "^BattleUnitModel$"
 python -m limbuspy mods --mods mods
-`
+python -m limbuspy statics --catalog "<catalog.bin>" --out extracted/statics
+python -m limbuspy pack --variant system --out dist/system
+```
 
-caps.json 是**版本漂移报警**：	ools/requirements/limbuspy.json 声明 LimbusPy 承诺的 API
+`caps.json` 是**版本漂移报警**：`tools/requirements/limbuspy.json` 声明 LimbusPy 承诺的 API
 （当前 10 个类型 / ~95 个成员，已对着实机 dump 全绿），新版本 dump 一生成就能看出哪条断了。
 
 ## 快速验证（不需要游戏）
@@ -90,7 +103,10 @@ caps.json 是**版本漂移报警**：	ools/requirements/limbuspy.json 声明 Li
 # 1. Python 单测
 .venv\Scripts\python.exe -m pytest LimbusPy\python\tests -q
 
-# 2. 跨语言一致性（会 dotnet build 那个 harness）
+# 2. 完整示例（合成战斗 + mock kernel，不需要游戏）
+.venv\Scripts\python.exe LimbusPy\examples\run_sinking_tide.py
+
+# 3. 跨语言一致性（会 dotnet build 那个 harness）
 .venv\Scripts\python.exe LimbusPy\tools\conformance.py
 
 # 只要编码一致性（最快）

@@ -239,10 +239,13 @@ namespace LimbusPy.Bridge.Runtime
             }
         }
 
-        private static string[] AdvertisedCaps()
+        private string[] AdvertisedCaps()
         {
             // Only claim what this build actually implements; Python degrades gracefully otherwise.
-            return new[]
+            // The two service-backed caps are conditional: advertise them only when the service the
+            // message would need really exists, otherwise a client would believe SNAPSHOT/PATCH_ADD
+            // work and get "unsupported" on first use.
+            var caps = new List<string>
             {
                 Caps.ReflectManaged,
                 Caps.ReflectField,
@@ -250,6 +253,9 @@ namespace LimbusPy.Bridge.Runtime
                 Caps.HandlePinned,
                 Caps.BudgetFrame,
             };
+            if (_snapshot != null) caps.Add(Caps.SnapshotV1);
+            if (_patches != null) caps.Add(Caps.PatchTable);
+            return caps.ToArray();
         }
 
         // -- inbound -----------------------------------------------------------------------

@@ -1,0 +1,5 @@
+name = "sinking_tide"
+version = "1.0.0"
+description = "把 SINKING 叠层换成一次真实伤害，并输出战斗报告（LimbusPy 示例 mod）"
+author = "example"
+requires = []

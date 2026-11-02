@@ -56,6 +56,10 @@ README = """# LimbusPy ({variant} build)
    {python_hint}
    ```
 
+Sample mod: `mods/_samples/sinking_tide/` (a complete, tested example - hooks, snapshot, reflection,
+Harmony patch, sync lane, statics). Folders starting with `_` are ignored by the loader, so it stays
+inert until you rename it to `mods/sinking_tide/`.
+
 Python mode: **{variant}** - {python_mode}
 """
 
@@ -147,7 +151,27 @@ def stage_common(root: str, layout: str, log) -> Dict[str, object]:
             "        self.log(\"hook fired; target=%r\" % (ctx.target,))\n"
         )
 
-    return {"assemblies": copied, "package_files": package_files, "generated_build": build}
+    sample = copy_sample_mods(root, layout, log)
+
+    return {"assemblies": copied, "package_files": package_files, "generated_build": build,
+            "sample_mod": os.path.relpath(sample, layout) if sample else None}
+
+
+def copy_sample_mods(root: str, layout: str, log) -> Optional[str]:
+    """Ships the tested example mod as an inert sample.
+
+    It lands under ``mods/_samples/`` because the loader ignores entries whose name starts with
+    ``_``: the user gets something runnable to read and copy, but an install never changes game
+    behaviour on first launch.
+    """
+    source = os.path.join(root, "examples", "sinking_tide")
+    if not os.path.isdir(source):
+        return None
+    target = os.path.join(layout, "mods", "_samples", "sinking_tide")
+    shutil.copytree(source, target, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    log("staged sample mod -> mods/_samples/sinking_tide (rename to activate)")
+    return target
 
 
 def stage_bundled_python(embed_dir: str, layout: str, log) -> bool:
