@@ -34,13 +34,13 @@ sinking_tide/
 ```powershell
 # 完整演示：合成一场战斗 → 打印每次派发/报告/热重载结果
 $env:PYTHONUTF8=1
-python LimbusPy/examples/run_sinking_tide.py
+python examples/run_sinking_tide.py
 
 # 只跑断言
-python LimbusPy/examples/run_sinking_tide.py --quiet
+python examples/run_sinking_tide.py --quiet
 
 # 回归测试
-python -m pytest LimbusPy/python/tests/test_example_mod.py -q
+python -m pytest python/tests/test_example_mod.py -q
 ```
 
 `run_sinking_tide.py` 里的替身用的是**真实成员名**（`Hp` / `MaxHp` / `InstanceID` /

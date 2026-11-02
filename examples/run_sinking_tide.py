@@ -1,7 +1,7 @@
 """跑通 ``examples/sinking_tide``：一个"游戏形状"的替身 + mock kernel，不需要开游戏。
 
-    python LimbusPy/examples/run_sinking_tide.py            # 完整演示
-    python LimbusPy/examples/run_sinking_tide.py --quiet    # 只跑断言，打印一行结论
+    python examples/run_sinking_tide.py            # 完整演示
+    python examples/run_sinking_tide.py --quiet    # 只跑断言，打印一行结论
 
 为什么这个文件值得存在：示例代码最容易变成"看起来对、跑不起来"。这里的替身对象用的是**真实
 成员名**（Hp / MaxHp / InstanceID / GetActivatedBuffModels / GetCurrentStack / ChangeHp /

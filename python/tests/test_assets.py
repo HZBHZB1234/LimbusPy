@@ -25,7 +25,11 @@ def test_unity_version_is_pinned():
 
 
 def test_available_reports_unitypy():
-    assert assets.available() is True
+    """`available()` 必须如实反映 UnityPy 是否可导入（两者都成立时才算对）。"""
+    import importlib.util
+
+    installed = importlib.util.find_spec("UnityPy") is not None
+    assert assets.available() is installed
 
 
 def test_missing_unitypy_raises_actionable_error(monkeypatch):

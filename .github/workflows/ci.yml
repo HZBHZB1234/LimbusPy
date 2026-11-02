@@ -1,0 +1,37 @@
+name: ci
+
+# 只跑"不需要游戏、不需要 C# 构建"的那一层：Python 单测 + 完整示例。
+# C# 内核与一致性 harness 需要游戏本体的 interop 程序集，跑不进公共 CI（见 README「从源码构建」）。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    name: python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+
+      - name: unit tests
+        run: python -m pytest python/tests -q
+
+      - name: example mod (end-to-end, mock kernel)
+        run: python examples/run_sinking_tide.py --quiet

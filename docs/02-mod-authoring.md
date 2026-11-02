@@ -323,16 +323,16 @@ def on_hit(self, ctx):
 上面每节各讲一块，真正难的是**组合**。仓库里有一个跑得起来、且被测试盯着的完整示例：
 
 ```
-LimbusPy/examples/sinking_tide/          # mod 本体（hook + 快照 + 反射 + 补丁 + 同步 + 静态表）
-LimbusPy/examples/run_sinking_tide.py    # 驱动器：合成战斗 + mock kernel，不需要开游戏
-LimbusPy/python/tests/test_example_mod.py # 把它当 mod 加载并断言行为
+examples/sinking_tide/          # mod 本体（hook + 快照 + 反射 + 补丁 + 同步 + 静态表）
+examples/run_sinking_tide.py    # 驱动器：合成战斗 + mock kernel，不需要开游戏
+python/tests/test_example_mod.py # 把它当 mod 加载并断言行为
 ```
 
 ```powershell
 $env:PYTHONUTF8=1
-python LimbusPy/examples/run_sinking_tide.py       # 完整演示
-python LimbusPy/examples/run_sinking_tide.py --quiet
-python -m pytest LimbusPy/python/tests/test_example_mod.py -q
+python examples/run_sinking_tide.py       # 完整演示
+python examples/run_sinking_tide.py --quiet
+python -m pytest python/tests/test_example_mod.py -q
 ```
 
 它做的事：敌人身上的 SINKING 叠层到了阈值、且血够少 → 走游戏自己的 `ChangeHp` 管线扣一次血，

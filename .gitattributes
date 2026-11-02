@@ -1,0 +1,18 @@
+# 统一换行，避免 Windows/macOS 上同一文件反复产生纯换行差异。
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bundle binary
+*.dll binary
+*.pdb binary
+*.so binary
+*.zip binary
+*.tgz binary
+*.pyc binary
+
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
