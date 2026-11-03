@@ -8,6 +8,7 @@ The kernel has one layout contract (``kernel/LimbusPy.Bridge/Config/BridgeSettin
 
     <plugin dir>/
       LimbusPy.Bridge*.dll        kernel assemblies
+    LimbusPy.Ops.dll            A-layer (curated) ops
       python/                     PYTHONPATH root; a bundled interpreter lives here as python.exe
       mods/                       user mods
       .state/                     hot-reload state (created on first run)
@@ -40,6 +41,8 @@ KERNEL_PROJECTS = (
     ("kernel/LimbusPy.Bridge/LimbusPy.Bridge.csproj", "LimbusPy.Bridge.dll"),
     ("kernel/LimbusPy.Bridge.Core/LimbusPy.Bridge.Core.csproj", "LimbusPy.Bridge.Core.dll"),
     ("kernel/LimbusPy.Bridge.Harmony/LimbusPy.Bridge.Harmony.csproj", "LimbusPy.Bridge.Harmony.dll"),
+    # A 层（封装 API）：独立程序集，缺失/加载失败时内核自动降级到 B 层反射
+    ("kernel/LimbusPy.Ops/LimbusPy.Ops.csproj", "LimbusPy.Ops.dll"),
 )
 #: Files BepInEx must not load twice; the plugin references these from BepInEx/core.
 EXTERNAL_ASSEMBLIES = {"0Harmony.dll", "MonoMod.RuntimeDetour.dll", "MonoMod.Utils.dll",
@@ -78,8 +81,10 @@ def build_kernel(root: str, log) -> None:
             raise SystemExit("build failed: %s\n%s%s" % (path, result.stdout, result.stderr))
 
 
-def kernel_output(root: str) -> str:
-    return os.path.join(root, "kernel", "LimbusPy.Bridge", "bin", "Debug", "net6.0")
+def kernel_output(root: str, project: str = "kernel/LimbusPy.Bridge") -> str:
+    """每个 csproj 有自己的 bin 目录；A 层（LimbusPy.Ops）刻意不引用内核，单独构建。"""
+    name = os.path.basename(os.path.dirname(project))
+    return os.path.join(root, "kernel", name, "bin", "Debug", "net6.0")
 
 
 def copy_package(root: str, layout: str) -> int:
@@ -116,12 +121,16 @@ def copy_generated_index(root: str, layout: str) -> Optional[str]:
 
 def stage_common(root: str, layout: str, log) -> Dict[str, object]:
     os.makedirs(layout, exist_ok=True)
-    out = kernel_output(root)
     copied: List[str] = []
-    for _project, dll in KERNEL_PROJECTS:
-        source = os.path.join(out, dll)
+    for project, dll in KERNEL_PROJECTS:
+        source = os.path.join(kernel_output(root, project), dll)
         if not os.path.isfile(source):
-            raise SystemExit("missing kernel assembly: %s (build first)" % source)
+            # 兼容老布局：三个内核 dll 都输出到 Bridge 的 bin 下
+            fallback = os.path.join(kernel_output(root), dll)
+            if os.path.isfile(fallback):
+                source = fallback
+            else:
+                raise SystemExit("missing kernel assembly: %s (build first)" % source)
         shutil.copy2(source, os.path.join(layout, dll))
         copied.append(dll)
 
@@ -164,7 +173,7 @@ def copy_sample_mods(root: str, layout: str, log) -> Optional[str]:
     ``_``: the user gets something runnable to read and copy, but an install never changes game
     behaviour on first launch.
     """
-    source = os.path.join(root, "examples", "sinking_tide")
+    source = os.path.join(root, "python", "examples", "sinking_tide")
     if not os.path.isdir(source):
         return None
     target = os.path.join(layout, "mods", "_samples", "sinking_tide")

@@ -1,23 +1,30 @@
-"""沉溺潮汐 (sinking_tide) —— 一个"较复杂"的 LimbusPy 示例 mod。
+"""沉溺潮汐 (sinking_tide) —— 「深水区」示例：门面 + 门面覆盖不到的那两层。
 
 它把一件事做完整，而不是把 API 罗列一遍。做的事情是：
 
     把敌人身上的 SINKING（沉溺）叠层，在合适的时机换成一次真实的 HP 损失，
-    并把整场战斗的"谁被打了多少 / 叠层怎么涨 / 谁触发了爆发"记成一份可查询的报告。
+    并把整场战斗的「谁被打了多少 / 叠层怎么涨 / 谁触发了爆发」记成一份可查询的报告。
 
-这样它必须同时用到 LimbusPy 的六条主要通路（这也是本示例的意义）：
+这个示例和 ``burst_on_hit`` / ``damage_ledger`` 的区别是**它走到底**：
 
-    1. @hook(时机)       —— 命中与吃 buff 的批量异步回调（第 0 条成本）
-    2. battle 快照        —— 一次往返看清全场，之后读 hp/instance_id 全部免费
-    3. 反射调用           —— ChangeHp / AddPassive（真实方法名 + 真实签名，见 _deal_damage）
-    4. Harmony 补丁       —— 监听游戏自己的每一次 HP 变化（含非本 mod 造成的）
-    5. 同步泳道           —— ChangeTakeDamage 返回倍率（阻塞，硬预算 20 ms，只读内存）
-    6. 静态数据表         —— 用 BuffData/PassiveData 校准叠层上限、解析被动名
+| 通路 | 这个示例用在哪 |
+|---|---|
+| ``@lp.on_hit`` / ``@lp.on_damage`` | 命中与沉溺伤害的记账（类型化 payload，0 往返） |
+| ``lp.unit(...)`` 快照 | 一次往返看清一个单位，之后读属性全免费 |
+| ``lp.burst(...)`` | 复合动作：叠层 → 伤害，在同一个主线程时间片里 |
+| ``StaticData`` | 用 ``BuffData`` 校准叠层上限（静态表不在门面里） |
+| ``Mod.patch`` | 监听游戏自己的**每一次** HP 变化（含非本 mod 造成的）—— 门面没有这条路 |
+| ``@hook(sync=True)`` | 同步泳道：阻塞主线程要一个倍率 —— 门面刻意不提供 |
+| ``config`` / ``on_save`` | 配置与热重载不丢账本 |
+| ``@expose`` | 报告给内核 / REPL / 其它 mod |
 
-再加上 config / on_save / on_restore，因此热重载（改文件即生效）不会丢账本。
+**为什么后三条不在门面里**：它们不是"更长一点的 API"，而是**不同的成本模型**。
 
-成员名全部来自 limbuspy/game/members.py（对着真实 dump 校验过），
-不在表里的成员一律走 unit.call(...) 逃生口，并在注释里写明它在 dump 里的真实签名。
+* Harmony 补丁跑在游戏方法内部，属于"改游戏行为"而不是"调游戏功能"；
+* 同步泳道会阻塞游戏主线程等 Python 回包（硬预算 20 ms），用错就是掉帧和判定错乱。
+
+把这两样混进 ``lp.*``（作者每天都要用的东西）会让"这里可能有坑"的信号消失。
+所以它们留在 ``limbuspy.mod``，并且需要显式写出来。
 """
 
 from __future__ import annotations
@@ -26,19 +33,16 @@ import collections
 import os
 from typing import Any, Dict, List, Optional
 
-from limbuspy.game import Unit
-from limbuspy.game import battle as gb
+import limbuspy as lp
 from limbuspy.game import statics as gs
-from limbuspy.mod import Mod, config, expose, hook
-from limbuspy.runtime.errors import BridgeError
+from limbuspy.mod import Mod, config, expose
+from limbuspy.mod.decorators import hook          # 同步泳道（高级层）
 
-#: 沉溺的 BuffModel 主关键字（枚举名是 Sinking，比较时大写化，见 Unit.buff_stack）
+#: 沉溺的 BuffModel 主关键字（枚举名是 Sinking，比较时大写化）
 SINKING = "SINKING"
 
-#: BUFF_UNIQUE_KEYWORD 里 "无关键字" 的哨兵值（dump: ChangeHp 的默认参数 2123）
-NO_KEYWORD = 2123
-
-#: OnChangeHp 的参数个数（用于补丁签名消歧）
+#: OnChangeHp 的参数表（用于 Harmony 补丁的签名消歧）。逐字取自
+#: ``il2csharp/out/limbus/full0/Assembly-CSharp/ChangeStat.cs`` 的实现签名。
 _ON_CHANGE_HP_SIG = ["int", "int", "DAMAGE_SOURCE_TYPE", "BATTLE_EVENT_TIMING",
                      "BattleUnitModel", "BattleActionModel", "BUFF_UNIQUE_KEYWORD"]
 
@@ -60,7 +64,7 @@ class Ledger:
         self.bursts = 0
         self.damage = 0
         self.hp_events = 0
-        self.gained = 0
+        self.ticks = 0
         if data:
             self.load(data)
 
@@ -98,7 +102,7 @@ class Ledger:
             "bursts": self.bursts,
             "damage": self.damage,
             "hp_events": self.hp_events,
-            "sinking_gained": self.gained,
+            "sinking_ticks": self.ticks,
         }
 
     def top(self, limit: int = 5) -> List[dict]:
@@ -109,7 +113,7 @@ class Ledger:
     # -- 持久化 -------------------------------------------------------------------------
     def to_dict(self) -> dict:
         return {"units": self.units, "bursts": self.bursts, "damage": self.damage,
-                "hp_events": self.hp_events, "gained": self.gained}
+                "hp_events": self.hp_events, "ticks": self.ticks}
 
     def load(self, data: dict) -> None:
         units = (data or {}).get("units")
@@ -120,7 +124,7 @@ class Ledger:
                     for field, value in row.items():
                         if isinstance(value, (int, float)) and not isinstance(value, bool):
                             base[field] = int(value)
-        for field in ("bursts", "damage", "hp_events", "gained"):
+        for field in ("bursts", "damage", "hp_events", "ticks"):
             value = (data or {}).get(field)
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 setattr(self, field, int(value))
@@ -141,8 +145,7 @@ class SinkingTide(Mod):
         hp_ratio_ceiling=0.5,   # 只打血少的：hp/max_hp 上限
         max_damage_per_burst=120,
         once_per_round=True,    # 同一轮只爆发一次
-        burst_passive_id=0,     # 额外施加的被动 id（0 = 不施加）
-        amplify_take_damage=False,  # 同步钩子：是否放大队友受到的伤害
+        amplify_take_damage=False,  # 同步泳道：是否放大受到的伤害
         watch_hp_changes=True,  # 是否打补丁监听全场的 HP 变化
         dry_run=False,          # 只记账、不动手（排障用）
         statics_dir="",         # 留空 = 用 mod 自带的 data/ 子目录
@@ -156,7 +159,6 @@ class SinkingTide(Mod):
         self.tide_armed = False
         self.last_burst_round = 0
         self._sinking_max_stack = 99
-        self._passive_name = ""
         self._statics_root = ""
 
     # -- 生命周期 -----------------------------------------------------------------------
@@ -173,9 +175,8 @@ class SinkingTide(Mod):
         else:
             self.log("HP 变化监听已关闭")
 
-        self.log("阈值 %d 层 / 每层 %d 伤害 / 沉溺上限 %d / 被动 %s"
-                 % (self.cfg.threshold, self.cfg.damage_per_stack,
-                    self._sinking_max_stack, self._passive_name or "(无)"))
+        self.log("阈值 %d 层 / 每层 %d 伤害 / 沉溺上限 %d"
+                 % (self.cfg.threshold, self.cfg.damage_per_stack, self._sinking_max_stack))
 
     def on_save(self) -> dict:
         # 热重载：账本 + 潮汐是否已就绪必须活下来，否则重载一次就清零。
@@ -186,12 +187,12 @@ class SinkingTide(Mod):
         self.ledger = Ledger(state.get("ledger"))
         self.tide_armed = bool(state.get("tide_armed"))
         self.last_burst_round = int(state.get("last_burst_round") or 0)
-        self.log("恢复账本: %df 命中 / %d 次爆发 / %d 伤害"
+        self.log("恢复账本: %d 命中 / %d 次爆发 / %d 伤害"
                  % (self.ledger.totals()["hits"], self.ledger.bursts, self.ledger.damage))
 
     # -- 静态数据表 ---------------------------------------------------------------------
     def _load_statics(self) -> None:
-        """读 BuffData/PassiveData：叠层上限与被动名。缺表不是错误，只是少一点精度。"""
+        """读 BuffData：叠层上限。缺表不是错误，只是少一点精度。"""
         root = self.cfg.statics_dir or os.path.join(_MOD_DIR, "data")
         self._statics_root = root
         try:
@@ -207,49 +208,41 @@ class SinkingTide(Mod):
                     self._sinking_max_stack = int(row.get("maxStack") or self._sinking_max_stack)
                     break
 
-        if self.cfg.burst_passive_id:
-            passive = db.table("PassiveData")
-            record = passive.get(self.cfg.burst_passive_id) if passive is not None else None
-            if isinstance(record, dict):
-                self._passive_name = str(record.get("name") or "")
-
         self.log("静态表 %d 张（%s）" % (len(db), root))
 
     # -- 时机钩子：命中 ----------------------------------------------------------------
-    @hook("OnSucceedAttack", priority=10)
-    def on_hit(self, ctx) -> None:
-        """一次命中。做完记账后，用**一次快照**决定要不要爆发。"""
-        if ctx.target is None:
+    @lp.on_hit
+    def on_hit(self, ev) -> None:
+        """一次命中：记账，然后用**一次快照**决定要不要爆发。"""
+        if ev.target is None:
             return
 
-        book = gb.current(ctx.session)          # 1 次 SNAPSHOT 往返，之后全场读取都是内存操作
-        unit = self._find_unit(book, ctx.target)
-
-        head = bool(ctx.event.get("head"))
-        crit = bool(ctx.event.get("crit"))
-        uid = self._uid(unit, ctx.target)
-        self.ledger.hit(uid, head=head, crit=crit)
-        if head:
+        enemy = lp.unit(ev.target)              # 1 次往返，之后读多少属性都免费
+        uid = str(enemy.instance_id) if enemy is not None else ev.target.key
+        self.ledger.hit(uid, head=bool(ev.is_critical), crit=bool(ev.is_critical))
+        if ev.is_critical:
             self.tide_armed = True
 
-        # 爆发判定复用同一份快照：不做第二次往返。
-        self._evaluate(ctx, book, uid)
+        self._evaluate(ev.target, enemy, uid)
 
-    # -- 时机钩子：吃到沉溺 -------------------------------------------------------------
-    @hook("OnGainBuff", keyword=SINKING)
-    def on_sinking_gained(self, ctx) -> None:
-        """沉溺叠层变化。ctx.state 是**本 hook 私有**的字典，且跨热重载保留。"""
+    # -- 时机钩子：沉溺自己掉血 ---------------------------------------------------------
+    #
+    # ``DamageDealt`` 带着 ``keyword``（这次 HP 变化是哪个 buff 造成的）。用声明式谓词
+    # 只看关键字带 SINKING 的那些 —— 谓词读的是 payload，**0 次往返**，
+    # 而且不满足时函数体根本不会跑。
+
+    @lp.on_damage(when=lp.ev.keyword == SINKING)
+    def on_sinking_tick(self, ev) -> None:
         self.tide_armed = True
-        self.ledger.gained += 1
-        ctx.state["gained"] = int(ctx.state.get("gained") or 0) + 1
+        self.ledger.ticks += 1
 
     # -- 同步泳道：伤害倍率 -------------------------------------------------------------
     @hook("ChangeTakeDamage", sync=True, fallback=100)
     def take_damage_multiplier(self, ctx) -> int:
         """返回 100 = 不变，115 = +15%。
 
-        同步钩子会**阻塞游戏主线程**等 Python 回包（默认 20 ms）。所以这里只读内存里的两个
-        字段，绝不 ctx.call/get —— 任何往返都可能撞上预算而落到 fallback。
+        同步钩子会**阻塞游戏主线程**等 Python 回包（默认 20 ms）。所以这里只读内存里的
+        两个字段，绝不调用任何 op —— 任何往返都可能撞上预算而落到 fallback。
         """
         if not self.cfg.amplify_take_damage or not self.tide_armed:
             return 100
@@ -288,8 +281,7 @@ class SinkingTide(Mod):
             "armed": self.tide_armed,
             "last_burst_round": self.last_burst_round,
             "statics": {"root": self._statics_root,
-                        "sinking_max_stack": self._sinking_max_stack,
-                        "passive": self._passive_name},
+                        "sinking_max_stack": self._sinking_max_stack},
             "config": self.cfg.as_dict(),
             "totals": self.ledger.totals(),
             "top": self.ledger.top(),
@@ -305,126 +297,72 @@ class SinkingTide(Mod):
         args = ctx.event.get("args") or []
         if not args:
             raise ValueError("force_burst 需要实例 id，例如 force_burst(201)")
-        book = gb.current(ctx.session)
-        unit = book.unit(int(args[0]))
-        if unit is None:
+        target = lp.unit(int(args[0]))
+        if target is None:
             raise ValueError("战场里没有 instance_id=%r" % (args[0],))
-        stacks = unit.buff_stack(SINKING) or int(self.cfg.threshold)
-        return self._burst(ctx, unit, stacks, book)
+        stacks = target.buff_stack(SINKING) or int(self.cfg.threshold)
+        return self._burst(target, stacks)
 
     # -- 决策与执行 ---------------------------------------------------------------------
-    def _evaluate(self, ctx, book, attacker_uid: str) -> Optional[dict]:
-        """挑一个敌人：沉溺最多的那个；同层数时打血最少的。"""
-        candidates = [unit for unit in book.enemy_units if not unit.data.get("is_dead")]
-        if not candidates:
+    def _evaluate(self, ref, enemy, uid: str) -> Optional[dict]:
+        """判定要不要爆发。
+
+        ``enemy`` 是刚才那次快照（可能为 None：单位在两次读之间消失了）。
+        这里不再读任何别的东西 —— 需要全场视角的版本见 ``docs/02-mod-authoring.md``
+        里 ``lp.battle()`` 的写法（一次往返拿全场，而不是逐单位 N 次）。
+        """
+        if enemy is None or enemy.is_dead:
             return None
 
-        # buff_stack 会对每个单位各往返一次，但同一 session 内按属性缓存，所以这里最多 1 次/单位。
-        scored = []
-        for unit in candidates:
-            stacks = unit.buff_stack(SINKING)
-            scored.append((stacks, -unit.hp_ratio, unit))
-        scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        best_stacks, neg_ratio, best = scored[0]
-
-        if best_stacks < int(self.cfg.threshold):
+        stacks = enemy.buff_stack(SINKING)      # 只读这一个关键字，不拉整张 buff 表
+        if stacks < int(self.cfg.threshold):
             return None
-        if -neg_ratio > float(self.cfg.hp_ratio_ceiling):
+        if enemy.hp_ratio > float(self.cfg.hp_ratio_ceiling):
             return None
 
-        round_ = int(book.round)
+        round_ = int(lp.round() or 0)
         if self.cfg.once_per_round and self.last_burst_round == round_:
             return None
+        return self._burst(ref, stacks)
 
-        return self._burst(ctx, best, best_stacks, book)
-
-    def _burst(self, ctx, unit, stacks: int, book) -> dict:
+    def _burst(self, ref, stacks: int) -> dict:
         """把叠层换成伤害。这是本 mod 唯一"真的动了游戏状态"的地方。"""
         stacks = max(0, min(int(stacks), int(self._sinking_max_stack)))
-        damage = min(stacks * int(self.cfg.damage_per_stack), int(self.cfg.max_damage_per_burst))
-        old_hp = int(unit.hp or 0)
-        new_hp = max(0, old_hp - damage)
-        uid = self._uid(unit, None)
-        round_ = int(book.round)
+        damage = min(stacks * int(self.cfg.damage_per_stack),
+                     int(self.cfg.max_damage_per_burst))
+        round_ = int(lp.round() or 0)
 
-        result = {"unit": uid, "round": round_, "stacks": stacks, "damage": damage,
-                  "hp": [old_hp, new_hp], "dry_run": bool(self.cfg.dry_run),
-                  "applied": [], "errors": []}
-
-        if not self.cfg.dry_run:
-            if self._deal_damage(unit, new_hp, result):
-                self.ledger.burst(uid, damage, round_)
-                self.last_burst_round = round_
-                self.tide_armed = False
-            if self.cfg.burst_passive_id:
-                self._add_passive(unit, int(self.cfg.burst_passive_id), result)
-        else:
-            self.ledger.burst(uid, damage, round_)
+        result: Dict[str, Any] = {
+            "unit": str(ref), "round": round_, "stacks": stacks, "damage": damage,
+            "dry_run": bool(self.cfg.dry_run), "applied": [], "errors": [],
+        }
+        if self.cfg.dry_run:
+            self.ledger.burst(str(ref), damage, round_)
             self.last_burst_round = round_
+            self.log("潮汐爆发(dry_run) %s: %d 层 → %d 伤害" % (ref, stacks, damage))
+            return result
 
-        self.log("潮汐爆发 %s: %d 层 → %d 伤害 (hp %d → %d)%s"
-                 % (uid, stacks, damage, old_hp, new_hp, " [dry_run]" if self.cfg.dry_run else ""))
+        # ``lp.damage`` 收的是"扣多少"，不是 ``ChangeHp`` 的"目标 HP 值" ——
+        # 方向、枚举、关键字哨兵都在 C# 侧封好了。
+        action = lp.damage(ref, damage, source="PASSIVE")
+        if not action.ok:
+            result["errors"].append(action.reason or "未知")
+            self.log("伤害没有生效: %s" % (action.reason or "未知",))
+            return result
+
+        result["applied"].append("damage")
+        if action.state is not None:
+            result["hp"] = [action.state.hp, action.state.hp]
+        self.ledger.burst(str(ref), damage, round_)
+        self.last_burst_round = round_
+        self.tide_armed = False
+
+        self.log("潮汐爆发 %s: %d 层 → %d 伤害（剩余 HP %s）"
+                 % (ref, stacks, damage,
+                    action.state.hp if action.state is not None else "?"))
         return result
-
-    def _deal_damage(self, unit, new_hp: int, result: dict) -> bool:
-        """通过游戏自己的 HP 管线改血，而不是直接写字段。
-
-        dump 里 ``BattleUnitModel.ChangeHp`` 的签名（Il2CppDumper-release/dump.cs:588122）::
-
-            int ChangeHp(int value, DAMAGE_SOURCE_TYPE dmgSrcType, BATTLE_EVENT_TIMING timing,
-                         BattleUnitModel attackerOrNull, BattleActionModel actionOrNull,
-                         CoinModel coinOrNull, BUFF_UNIQUE_KEYWORD keyword = 2123,
-                         bool deactivePassedBreakSection = false, bool ignorePassedBreakSection = false)
-
-        注意 **value 是"目标 HP 值"，不是增量** —— 基类 ``ChangeStat.ChangeHp(int newHp, ...)``
-        （il2csharp/out/limbus/full0/Assembly-CSharp/ChangeStat.cs:25）的参数名写得很清楚，
-        游戏自己也到处用 ``ChangeHp(unit.MaxHp, ...)`` 来"回满血"。所以扣血要传 old_hp - damage。
-
-        枚举参数过桥时传**成员名**（"PASSIVE"），可选参数也必须显式给全：内核按参数个数
-        精确匹配重载，不会替你补默认值。
-        """
-        try:
-            unit.call("ChangeHp", int(new_hp), "PASSIVE", "ON_SUCCESS_ATTACK",
-                      None, None, None, NO_KEYWORD, False, False)
-            result["applied"].append("ChangeHp")
-            return True
-        except BridgeError as exc:
-            result["errors"].append("ChangeHp: %s" % exc)
-            self.log("ChangeHp 失败: %s" % exc)
-            return False
-
-    def _add_passive(self, unit, passive_id: int, result: dict) -> None:
-        """``BattleUnitModel.AddPassive(int)`` —— 单参数、int、void，最安全的"施加效果"入口。"""
-        try:
-            unit.call("AddPassive", int(passive_id))
-            result["applied"].append("AddPassive(%d)" % passive_id)
-        except BridgeError as exc:
-            result["errors"].append("AddPassive: %s" % exc)
-            self.log("AddPassive(%d) 失败: %s" % (passive_id, exc))
-
-    # -- 小工具 -------------------------------------------------------------------------
-    @staticmethod
-    def _find_unit(book, target) -> Any:
-        """把事件里的主对象换成快照里的 Unit（同一句柄即同一单位）。"""
-        handle = int(target.get("h") or 0) if isinstance(target, dict) else int(getattr(target, "handle", 0) or 0)
-        if handle:
-            for unit in book.units:
-                if unit.handle == handle:
-                    return unit
-        # 快照里没有（例如刚召唤出来的单位）：退化成按需往返的薄包装。
-        return Unit(book.session, target) if isinstance(target, dict) else None
-
-    @staticmethod
-    def _uid(unit, target) -> str:
-        if unit is not None:
-            instance_id = unit.data.get("instance_id")
-            if instance_id:
-                return str(instance_id)
-            if int(getattr(unit, "handle", 0) or 0):
-                return "h:%d" % int(unit.handle)
-        handle = int(target.get("h") or 0) if isinstance(target, dict) else 0
-        return "h:%d" % handle if handle else "unknown"
 
 
 #: 加载器会挑本模块里"最派生"的 Mod 子类，这里把基类也导出只是为了让 `from . import Ledger` 可用。
 __all__ = ["SinkingTide", "Ledger"]
+

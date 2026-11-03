@@ -350,6 +350,24 @@ def run_live(checker: Checker) -> None:
         checker.eq("reflect: double field", bridge.call("k", "reflect.set", unit, "Speed", 7.5), 7.5)
         checker.eq("reflect: enum set by name", bridge.call("k", "reflect.set", unit, "Faction", "ENEMY"), "ENEMY")
         checker.eq("reflect: read-only property", bridge.call("k", "reflect.get", unit, "IsAlive"), True)
+        # ReflectOps 共享实现（内核与 harness 同一份）+ BATCH
+        try:
+            bridge.call("k", "reflect.nope", unit)
+            checker.eq("reflect: unknown op is notfound", False, True)
+        except Exception as exc:  # noqa: BLE001
+            checker.eq("reflect: unknown op is notfound", getattr(exc, "code", ""), "notfound")
+
+        batch = bridge.request(MsgType.BATCH, {"ops": [
+            [unit, "reflect.get", [unit, "Hp"]],
+            [unit, "reflect.get", [unit, "MaxHp"]],
+            [unit, "reflect.nope", [unit]],
+        ]})
+        entries = list(batch.get("value") or [])
+        checker.eq("batch: 3 entries", len(entries), 3)
+        checker.eq("batch: first value", (entries[0] or {}).get("value"), 60)
+        checker.eq("batch: second value", (entries[1] or {}).get("value"), 40)
+        checker.eq("batch: per-item error isolated", bool((entries[2] or {}).get("err")), True)
+
         checker.eq("reflect: method call", bridge.call("k", "reflect.invoke", unit, "Describe"),
                    "Faust hp=60/40 buffs=0 faction=ENEMY")
 

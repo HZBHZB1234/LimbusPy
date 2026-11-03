@@ -136,6 +136,18 @@ namespace LimbusPy.Bridge.Tests
                     await HandleCallAsync(peer, frame, cancellationToken).ConfigureAwait(false);
                     return;
 
+                case MsgType.Batch:
+                {
+                    // 与内核同一条调度路径（Core/Bridge/RequestRouter.cs）。
+                    var batchRequest = PeerConnection.DecodePayload(frame);
+                    var batchId = Lpcp.GetLong(batchRequest, "id", -1);
+                    var router = new LimbusPy.Bridge.Core.Bridge.RequestRouter(_invoker);
+                    var routed = router.Dispatch(MsgType.Batch, batchRequest, batchId);
+                    await peer.SendAsync(MsgType.CallResult, routed, cancellationToken).ConfigureAwait(false);
+                    Counters.Increment("batch");
+                    return;
+                }
+
                 case MsgType.Ping:
                     Counters.Increment("ping");
                     await peer.SendAsync(MsgType.Pong, cancellationToken).ConfigureAwait(false);
@@ -549,24 +561,14 @@ namespace LimbusPy.Bridge.Tests
                     var buff = new TestBuff(ToStr(args, 0), (int)ToLong(args, 1, 1), (int)ToLong(args, 2, 1));
                     return _marshaller.ToWire(buff);
                 },
-                ["reflect.invoke"] = args =>
-                {
-                    var target = args.Length > 0 ? args[0] : null;
-                    var method = args.Length > 1 && args[1] is string name
-                        ? name
-                        : throw LpcpFault.Marshal("reflect.invoke requires a method name");
-                    var callArgs = args.Length > 2 && args[2] is object[] array ? array : Array.Empty<object>();
-                    return _invoker.Invoke(target, method, callArgs);
-                },
-                ["reflect.get"] = args => _invoker.GetMember(
-                    args.Length > 0 ? args[0] : null,
-                    args.Length > 1 && args[1] is string member ? member : throw LpcpFault.Marshal("member name required")),
-                ["reflect.set"] = args => _invoker.SetMember(
-                    args.Length > 0 ? args[0] : null,
-                    args.Length > 1 && args[1] is string member ? member : throw LpcpFault.Marshal("member name required"),
-                    args.Length > 2 ? args[2] : null),
-                ["reflect.describe"] = args => _invoker.Describe(args.Length > 0 ? args[0] : null),
-                ["reflect.types"] = args => _invoker.Types(args.Length > 0 && args[0] is string filter ? filter : "Test"),
+                // 5 个标准 reflect 伪方法统一走 Core 的 ReflectOps：与真内核同一份实现，
+                // 这样 conformance 覆盖的就不再是"另一套 harness 私有逻辑"。
+                ["reflect.invoke"] = args => ReflectOps.Call(_invoker, "reflect.invoke", args),
+                ["reflect.get"] = args => ReflectOps.Call(_invoker, "reflect.get", args),
+                ["reflect.set"] = args => ReflectOps.Call(_invoker, "reflect.set", args),
+                ["reflect.describe"] = args => ReflectOps.Call(_invoker, "reflect.describe", args),
+                ["reflect.types"] = args => ReflectOps.Call(_invoker, "reflect.types",
+                    args.Length > 0 ? args : new object[] { "Test" }),
 
                 // failure injection ----------------------------------------------------------
                 ["self.close"] = args =>

@@ -1,0 +1,32 @@
+# 绑定生成范围（tools/gen_bindings.py --scope）
+#
+# 每行一个类型（可逗号分隔）；# 之后是注释。基类会被自动补进来（子类不重复声明继承成员）。
+#
+# 分层策略（见 docs/05-typed-api.md §3）：
+#   T1 = 战斗热路径，必须随包分发、必须 docstring 覆盖 100%
+#   T2 = 常用但非热路径，随包分发
+#   T3 = 按需生成到 mod 自己的仓库（`limbuspy api gen --type X`），不进主包
+
+# --- T1 战斗热路径 ---------------------------------------------------------------
+BattleUnitModel
+CombatUnitModel
+BuffModel
+BuffDetail
+SkillModel
+CoinModel
+BattleActionModel
+BattleObjectManager
+
+# --- T2 常用 ---------------------------------------------------------------------
+PassiveModel
+PassiveDetail
+PassiveAbility
+SkillAbility
+CoinAbility
+ActionSlotDetail
+BattleSystemAbilityDetail
+UnitSinModel
+SinActionModel
+StageModel
+StageController
+CharacterState

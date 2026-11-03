@@ -51,7 +51,7 @@ def test_system_layout_is_complete_and_healthy(tmp_path):
 
     # 完整示例随包分发，放在 `_samples/`（加载器跳过 `_` 前缀）→ 开箱可见但不会改游戏行为。
     sample = os.path.join(layout, "mods", "_samples", "sinking_tide", "__init__.py")
-    if os.path.isdir(os.path.join(ROOT, "examples", "sinking_tide")):
+    if os.path.isdir(os.path.join(ROOT, "python", "examples", "sinking_tide")):
         assert os.path.isfile(sample)
         assert os.path.isfile(os.path.join(layout, "mods", "_samples", "sinking_tide", "data",
                                            "BuffData.json"))
@@ -60,7 +60,7 @@ def test_system_layout_is_complete_and_healthy(tmp_path):
     assert manifest["variant"] == "system"
     assert manifest["complete"] is True
     assert set(manifest["assemblies"]) == {"LimbusPy.Bridge.dll", "LimbusPy.Bridge.Core.dll",
-                                          "LimbusPy.Bridge.Harmony.dll"}
+                                          "LimbusPy.Bridge.Harmony.dll", "LimbusPy.Ops.dll"}
 
     # The layout must never ship Harmony/MonoMod: BepInEx/core owns those assemblies.
     for name in packer.EXTERNAL_ASSEMBLIES:

@@ -1,0 +1,57 @@
+{
+  "BattleUnitModel": {
+    "__doc__": "战斗单位模型：玩家单位、敌人、异想体及其部位的共同基类。所有战斗读写都从这里出发。",
+    "Hp": "当前 HP。读它是一次反射往返；热点循环请用 `BattleUnitModel.select(...)` 或 battle 快照。",
+    "MaxHp": "最大 HP。",
+    "Mp": "当前 MP。",
+    "Level": "等级。注意 dump 里的类型是 `ObscuredInt`（混淆包装），内核按值类型处理，过桥时可能只拿到数字或失败。",
+    "Position": "站位（UNIT_POSITION 枚举）。",
+    "InstanceID": "本场战斗内唯一的实例 id；跨回合稳定，适合当记账的键。",
+    "IsDead": "是否已死亡（游戏自己的判定，不要用 hp<=0 代替）。",
+    "IsBreak": "是否处于崩溃（break）状态。",
+    "ChangeHp": "改血。**关键语义：value 是「目标 HP 值」，不是增量** —— 扣 5 点血要传 `hp - 5`。\n    游戏自己回满血就是 `ChangeHp(MaxHp, ...)`。\n    参数：dmgSrcType/timing 传枚举成员名（如 \"PASSIVE\"/\"ON_SUCCESS_ATTACK\"），\n    keyword 的「无关键字」哨兵值是 2123。可选参数必须显式给全（内核按参数个数精确匹配）。",
+    "AddPassive": "按被动 id 施加一个被动。单参数 int，是最安全的「施加效果」入口。",
+    "GetActivatedBuffModels": "当前激活的 BuffModel 列表。要按关键字取单个 buff 用语义层 `unit.buff(\"SINKING\")`。",
+    "HasUnitKeyword": "是否带某个单位关键字（传关键字名）。",
+    "GetOpponentFaction": "对立阵营：玩家单位返回 ENEMY，敌人返回 PLAYER（名字有歧义，注意）。",
+    "GetOriginUnitID": "原始单位 id（同一人格/敌人在多波次里共享）。"
+  },
+  "BuffModel": {
+    "__doc__": "一个 Buff 实例（层数/回合/关键字）。",
+    "GetCurrentStack": "当前层数。",
+    "GetMaxStack": "本 build 下的最大层数（可能被静态表 BuffData 覆盖）。",
+    "GetCurrentTurn": "剩余回合。",
+    "GetMainKeyword": "主关键字（如 SINKING / CHARGE）。",
+    "GetName": "显示名。",
+    "IsKeyword": "判断是否属于某个关键字（大小写不敏感）。"
+  },
+  "SkillModel": {
+    "__doc__": "技能模型：一次技能使用对应的静态+动态数据。",
+    "GetID": "技能 id（对应静态表 SkillData 的键）。",
+    "GetSkillName": "技能显示名。",
+    "CoinList": "硬币列表（CoinModel）。",
+    "GetCoinNum": "硬币数量。",
+    "IsAttack": "是否攻击技能。",
+    "IsDefense": "是否防御技能。"
+  },
+  "CoinModel": {
+    "__doc__": "硬币模型：一次投掷的结果与数值。",
+    "GetCoinResult": "投掷结果（正/反）。",
+    "GetScale": "硬币威力。",
+    "GetProb": "正面概率。",
+    "IsHead": "是否正面。",
+    "IsTail": "是否反面。"
+  },
+  "BattleActionModel": {
+    "__doc__": "一次行动（技能 + 目标 + 硬币序列）。",
+    "Skill": "这次行动使用的技能。",
+    "GetMainTarget": "主目标单位。",
+    "GetTargetUnitModelList": "目标单位列表。",
+    "GetSkillID": "技能 id。"
+  },
+  "BattleObjectManager": {
+    "__doc__": "战斗对象管理器（单例）：全场单位的入口。",
+    "_allUnitDictionary": "instance_id → BattleUnit 的字典；snapshot 就是从这里遍历的。",
+    "GetModel": "按 instance_id 取单位模型。"
+  }
+}

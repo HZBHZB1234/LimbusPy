@@ -81,6 +81,68 @@ requires = ["core_lib>=1.0"]
 
 ---
 
+## 2.5 两种 API：先用封装层（A），需要时再下潜（B）
+
+LimbusPy 有两种 API，**默认用 A 层**：
+
+| | A 层：封装 API | B 层：高级自定义 API |
+|---|---|---|
+| 写法 | `ctx.ops.unit.damage(unit, 18)` | `unit.call("ChangeHp", ...)` |
+| 成本 | 1 次 crossing，0 反射 | 1 次 crossing，每次反射 |
+| 时机 | `@on("DamageDealt")`（payload 有类型、有补全） | `@hook("...")` / `Mod.patch(...)` |
+| 适合 | 绝大多数 mod 逻辑 | 调试、冷门类型、完全控制 |
+
+```python
+from limbuspy.api.hooks import AttackSucceededPayload, on
+
+class MyMod(Mod):
+    @on("AttackSucceeded")
+    def on_hit(self, ev: AttackSucceededPayload, ctx: Any) -> None:
+        if ev.target is None:
+            return
+        stacks = ctx.ops.unit.buff_stacks(ev.target, "SINKING")   # 1 次 crossing
+        if stacks >= 6:
+            ctx.ops.unit.burst_by_buff(ev.target, "SINKING", per_stack=3, max_stacks=6)
+```
+
+三个入口的分工（**缓存域不同，别混用**）：
+
+| 场景 | 用什么 | 缓存 |
+|---|---|---|
+| hook / `@expose` 内读写 | `ctx.ops` / `ctx.session` | `ctx.session` 每次回调新建，缓存只活一次回调 |
+| `on_load`、后台线程 | `self.ops` / `self.session` | **无缓存**（`use_cache=False`），读到的是当次真值 |
+| 只读事件里已有信息 | `ctx.payload` / `ev.*` | 不需要桥 |
+
+> `self.session` 活在整个 mod 生命周期上，如果带缓存，第二回合读到的还是第一回合的 HP——
+> 所以框架刻意给了它无缓存会话；要"读一次、后面复用"请自己在 `self.state` 里存快照。
+
+要点：
+
+- 回调签名 `(self, ev)` 或 `(self, ev, ctx)` 都行；要用 `ctx.ops` / `ctx.session` 就加第三个参数
+  （`self.ops` 只留给 `on_load` 这类没有 ctx 的场景，且它用**无缓存**会话）；
+- A 层的**语义在 C# 里**（例如 `unit.damage` 内部处理 "ChangeHp 的 value 是目标 HP"），
+  所以不要自己再拼 `ChangeHp` 的参数 —— 那正是 A 层要消灭的东西；
+- 只读事件里已有信息的逻辑是**零 crossing**（`damage_ledger` 示例）；
+- 需要"读一次再决定"时，优先用复合 op（`unit.burst_by_buff`）而不是自己读-算-写三次往返；
+- A 层没覆盖的成员，用 `unit.raw.get/call(...)` 或 B 层（见 §6.5），并在注释里写明它在 dump 的签名；
+- 新增 A 层 op 的流程见 [`05-typed-api.md`](05-typed-api.md)：`ops/spec/api.toml` 加一段 →
+  `python tools/gen_contract.py` → 在 `kernel/LimbusPy.Ops/` 实现同名方法 → 加 fixture 测试。
+
+可运行示例（都不需要开游戏）——`python python/examples/run_examples.py`：
+
+| 目录 | 主题 |
+|---|---|
+| `python/examples/hello_passive` | 十行的 Hello World（模块级 `@lp.on_hit`，没有 `Mod` 类） |
+| `python/examples/damage_ledger` | 纯时机推送，0 次往返 |
+| `python/examples/field_medic` | 读一次 + 写一次的成本模型 |
+| `python/examples/burst_on_hit` | 复合动作 `lp.burst` |
+| `python/examples/drowning_tide` | 注册 Buff + 被动 + 零往返条件 |
+| `python/examples/shield_warden` | 条件写在装饰器里 + 写操作 |
+| `python/examples/battle_scribe` | 快照经济学（获取花钱，读属性免费） |
+| `python/examples/sinking_tide` | 深水区：门面 + Harmony 补丁 + 同步泳道 + 静态表 + 热重载 |
+
+---
+
 ## 3. `ctx`：回调里能做什么
 
 | 成员 | 说明 |
@@ -318,34 +380,39 @@ def on_hit(self, ctx):
 
 ---
 
-## 9. 完整示例：`examples/sinking_tide`
+## 9. 完整示例：`python/examples/sinking_tide`
 
 上面每节各讲一块，真正难的是**组合**。仓库里有一个跑得起来、且被测试盯着的完整示例：
 
 ```
-examples/sinking_tide/          # mod 本体（hook + 快照 + 反射 + 补丁 + 同步 + 静态表）
-examples/run_sinking_tide.py    # 驱动器：合成战斗 + mock kernel，不需要开游戏
-python/tests/test_example_mod.py # 把它当 mod 加载并断言行为
+python/examples/sinking_tide/          # mod 本体（门面 + 补丁 + 同步泳道 + 静态表 + 热重载）
+python/examples/run_sinking_tide.py    # 驱动器：mock 战斗 + mock kernel，不需要开游戏
+python/tests/test_example_mod.py       # 把它当 mod 加载并断言行为
 ```
 
 ```powershell
 $env:PYTHONUTF8=1
-python examples/run_sinking_tide.py       # 完整演示
-python examples/run_sinking_tide.py --quiet
+python python/examples/run_sinking_tide.py       # 完整演示
+python python/examples/run_sinking_tide.py --quiet
 python -m pytest python/tests/test_example_mod.py -q
 ```
 
-它做的事：敌人身上的 SINKING 叠层到了阈值、且血够少 → 走游戏自己的 `ChangeHp` 管线扣一次血，
-并把「谁被打了多少 / 叠层怎么涨 / 谁触发爆发」记成 `sinking_tide.report` 可查的报告；同一个
-mod 里还装了 `BattleUnitModel.OnChangeHp` 的补丁来监听全场 HP 变化，并用同步钩子返回伤害倍率。
+它做的事：敌人身上的 SINKING 叠层到了阈值、且血够少 → `lp.damage(...)` 扣一次血，
+并把「谁被打了多少 / 叠层怎么涨 / 谁触发爆发」记成 `sinking_tide.report` 可查的报告；
+同一个 mod 里还装了 `BattleUnitModel.OnChangeHp` 的补丁来监听全场 HP 变化，
+并用同步钩子返回伤害倍率。**这就是"门面覆盖到哪里为止"的样板**：日常动作全在 `lp.*`，
+补丁与同步泳道显式留在 `limbuspy.mod`。
 
 几个从示例里学得到的硬知识（都是踩过的）：
 
 - `BattleUnitModel.ChangeHp(value, ...)` 的 `value` 是**目标 HP 值**而不是增量
   （基类 `ChangeStat.ChangeHp(int newHp, ...)`；游戏自己用 `ChangeHp(MaxHp, ...)` 回满血）。
+  ——所以**不要自己调它**：`lp.damage(target, amount)` 收的就是"扣多少"。
 - 可选参数**必须显式给全**：内核按参数个数精确匹配重载，不会替你补默认值。
 - 枚举参数传**成员名**（`"PASSIVE"`、`"ON_SUCCESS_ATTACK"`），不要传数字。
-- 同步钩子 / 补丁回调里**只读内存**，别做任何 `ctx.call`（20 ms 预算，超了就落 fallback）。
+- 同步钩子 / 补丁回调里**只读内存**，别做任何 `ctx.call` 或 op 调用（20 ms 预算，超了就落 fallback）。
 - 用 `unit.buff_stack("SINKING")` 而不是自己去碰 `GetActivatedBuffStack`：后者有 4 个重载，
   且参数是枚举/枚举数组，反而容易选错。
+- 时点名要用 A 层的（`AttackSucceeded`），不是高级层的 `OnSucceedAttack` —— 写错了回调
+  一次都不会被调用，而且没有任何报错。
 
