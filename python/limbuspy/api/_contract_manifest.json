@@ -1,0 +1,2495 @@
+{
+  "generator": "0.1.0",
+  "hooks": [
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnChangeHp",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "attacker",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "old_hp",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "new_hp",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "source",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "DamageDealt"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnSucceedAttack",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "target",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "final_damage",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "real_damage",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "hp_damage",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "is_critical",
+          "optional": false,
+          "type": "bool"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "AttackSucceeded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnDie",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "killer",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "source",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "UnitDied"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnBreak",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "attacker",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "is_forced",
+          "optional": false,
+          "type": "bool"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "UnitBroken"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnStartTurn_AfterLog",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "TurnStarted"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnTakeHpDamage",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "attacker",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "final_damage",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "hp_damage",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "source",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "attribute",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "atk_type",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "HpDamageTaken"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnTakeMpDamage",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "attacker",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "source",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "MpDamaged"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnChangeMp",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "old_mp",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "new_mp",
+          "optional": false,
+          "type": "int"
+        }
+      ],
+      "timing": "MpChanged"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnStartCoin",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "CoinStarted"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnRollOneCoin_AfterAttack",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "CoinRolled"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnStartDuel",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "ClashStarted"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnWinDuel",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "parrying_count",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "remained_coin",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "ClashWon"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnLoseDuel",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "parrying_count",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "remained_coin",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "ClashLost"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnStartBehaviour",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "SkillStarted"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnEndBehaviour",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "SkillEnded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnAttackConfirmed",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "target",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "AttackConfirmed"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnEndAttack",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "is_win_duel",
+          "optional": false,
+          "type": "bool"
+        },
+        {
+          "name": "total_damage",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "total_hp_damage",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "AttackEnded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnStartTurn_BeforeLog",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "is_duel_expected",
+          "optional": false,
+          "type": "bool"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "TurnStarting"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnEndTurn",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "TurnEnded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnRoundStart_After_Event",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "RoundStarted"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnRoundEnd",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "RoundEnded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnCompleteCommand",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "CommandCompleted"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnBattleStart",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "BattleStarted"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnBattleEnd",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "BattleEnded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnWaveStart",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "WaveStarted"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnStageStart",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "StageStarted"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnKillTarget",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "target",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "source",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "EnemyKilled"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnZeroHp",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        }
+      ],
+      "timing": "ZeroHp"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnRetreat",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "trigger",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "UnitRetreated"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnUseBuff",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "stack",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "turn",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "BuffUsed"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnLoseSinBuff",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "stack",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "turn",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "BuffLost"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnAddShield",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "ShieldAdded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnWinParrying",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "ParryWon"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnLoseParrying",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "ParryLost"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnEndCoin_AfterLog",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "CoinEnded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnResult_AfterCheckCoin",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "CoinChecked"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnBeforeAttack",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "BeforeAttack"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnBreakForcely",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "attacker",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "source",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "BreakForced"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnReduceShield",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "old",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "attacker",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "ShieldReduced"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnDestroyShield",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "attacker",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "ShieldDestroyed"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnMentalCollapse",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        }
+      ],
+      "timing": "MentalCollapse"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnFakeDie",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "FakeDie"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnAfterTryTakeHpHeal",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "healer",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "try_heal",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "result_heal",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "source",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "HpHealed"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnAfterTryTakeMpHeal",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "healer",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "try_heal",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "result_heal",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "MpHealed"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnActivateSinBuffEffect",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "stack",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "turn",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "take_damage",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "giver",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "is_forced",
+          "optional": false,
+          "type": "bool"
+        },
+        {
+          "name": "is_critical",
+          "optional": false,
+          "type": "bool"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "SineBuffActivated"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnBlockGivingBuff",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "target",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "is_critical",
+          "optional": false,
+          "type": "bool"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "BuffBlocked"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnFailedToGiveBuff",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "target",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "stack",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "turn",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "BuffFailedToGive"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnUseCoinConsume",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "stack",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "turn",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "CoinConsumed"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnUseBuffStackBySkill",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "stack",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "BuffStackBySkill"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnAddUnit",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "UnitAdded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnReturnToField",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "retreat_turn",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "trigger",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "UnitReturned"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnEnemyBrokenByAttacker",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "target",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "hp_damage",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "source",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "EnemyBrokenByAttacker"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnBeforeTurn",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "TurnStartBefore"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnAfterParryingOnce_AfterLog",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "ParryResolved"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnDuelAfter_AfterLog",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "self_coin",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "oppo_coin",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "result",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "DuelEnded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnBeforeStartCoin",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "CoinBeforeStart"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnEndAttackOtherUnit",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "AttackOnOtherEnded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnEnemyPartDestroyedByAttacker",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "target",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "source",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "EnemyPartDestroyed"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnAddUnit_After",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "UnitAddedAfter"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnRoundStart_Before",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        }
+      ],
+      "timing": "RoundStartBefore"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnRoundStart_After_RelatedSlotState",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "RoundStartSlotState"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnRoundEnd_Dead",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "RoundEndDead"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnWaveEnd",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        }
+      ],
+      "timing": "WaveEnded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnStageEnd",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "cleared",
+          "optional": false,
+          "type": "bool"
+        }
+      ],
+      "timing": "StageEnded"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnResetShield",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "ShieldReset"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnActivateImmortality",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "attacker",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "activator",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "ImmortalityActivated"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnGiveImmortalState",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "taker",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "ImmortalStateGiven"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnTakeMpDmg_SinBuff",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "MpDamageSinBuff"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnKillTargetByOtherAlly",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "target",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "source",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "KilledTargetByAlly"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnDieOtherUnit",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "dead",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "killer",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "source",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "OtherUnitDied"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnBreakOtherUnit",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "broken",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "is_forced",
+          "optional": false,
+          "type": "bool"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "OtherUnitBroken"
+    },
+    {
+      "csharp": {
+        "kind": "postfix",
+        "method": "OnVibrationExplosion",
+        "target": "BattleUnitModel"
+      },
+      "payload": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "giver",
+          "optional": true,
+          "type": "unit"
+        },
+        {
+          "name": "ability_source",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "timing",
+          "optional": false,
+          "type": "str"
+        }
+      ],
+      "timing": "VibrationExplosion"
+    }
+  ],
+  "ops": [
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "info",
+      "name": "unit.info",
+      "returns": "UnitInfo",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "buff_keyword"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "buff_stacks",
+      "name": "unit.buff_stacks",
+      "returns": "int",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "buff_keyword"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "buff_turns",
+      "name": "unit.buff_turns",
+      "returns": "int",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "buffs",
+      "name": "unit.buffs",
+      "returns": "List[BuffInfo]",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "unit_keyword"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "has_keyword",
+      "name": "unit.has_keyword",
+      "returns": "bool",
+      "stability": "stable"
+    },
+    {
+      "args": [],
+      "class": "BattleOps",
+      "method": "units",
+      "name": "battle.units",
+      "returns": "List[UnitInfo]",
+      "stability": "stable"
+    },
+    {
+      "args": [],
+      "class": "BattleOps",
+      "method": "states",
+      "name": "battle.states",
+      "returns": "List[UnitState]",
+      "stability": "stable"
+    },
+    {
+      "args": [],
+      "class": "BattleOps",
+      "method": "players",
+      "name": "battle.players",
+      "returns": "List[UnitInfo]",
+      "stability": "stable"
+    },
+    {
+      "args": [],
+      "class": "BattleOps",
+      "method": "enemies",
+      "name": "battle.enemies",
+      "returns": "List[UnitInfo]",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "units",
+          "optional": false,
+          "type": "list_obj"
+        },
+        {
+          "name": "amount",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "source",
+          "optional": true,
+          "type": "source"
+        },
+        {
+          "name": "timing",
+          "optional": true,
+          "type": "timing"
+        }
+      ],
+      "class": "BattleOps",
+      "method": "damage_many",
+      "name": "battle.damage",
+      "returns": "List[UnitInfo]",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "units",
+          "optional": false,
+          "type": "list_obj"
+        },
+        {
+          "name": "amount",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": true,
+          "type": "timing"
+        }
+      ],
+      "class": "BattleOps",
+      "method": "heal_many",
+      "name": "battle.heal",
+      "returns": "List[UnitInfo]",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "min",
+          "optional": true,
+          "type": "int"
+        },
+        {
+          "name": "max",
+          "optional": true,
+          "type": "int"
+        }
+      ],
+      "class": "RngOps",
+      "method": "int",
+      "name": "rng.int",
+      "returns": "int",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "permille",
+          "optional": false,
+          "type": "int"
+        }
+      ],
+      "class": "RngOps",
+      "method": "chance",
+      "name": "rng.chance",
+      "returns": "bool",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "items",
+          "optional": false,
+          "type": "list_str"
+        }
+      ],
+      "class": "RngOps",
+      "method": "pick",
+      "name": "rng.pick",
+      "returns": "str",
+      "stability": "stable"
+    },
+    {
+      "args": [],
+      "class": "BattleOps",
+      "method": "round",
+      "name": "battle.round",
+      "returns": "Optional[int]",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "amount",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "source",
+          "optional": true,
+          "type": "source"
+        },
+        {
+          "name": "timing",
+          "optional": true,
+          "type": "timing"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "damage",
+      "name": "unit.damage",
+      "returns": "UnitInfo",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "amount",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": true,
+          "type": "timing"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "heal",
+      "name": "unit.heal",
+      "returns": "UnitInfo",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "hp",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "source",
+          "optional": true,
+          "type": "source"
+        },
+        {
+          "name": "timing",
+          "optional": true,
+          "type": "timing"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "set_hp",
+      "name": "unit.set_hp",
+      "returns": "UnitInfo",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "passive_id",
+          "optional": false,
+          "type": "int"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "add_passive",
+      "name": "unit.add_passive",
+      "returns": "bool",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "buff_keyword"
+        },
+        {
+          "name": "per_stack",
+          "optional": true,
+          "type": "int"
+        },
+        {
+          "name": "max_stacks",
+          "optional": true,
+          "type": "int"
+        },
+        {
+          "name": "source",
+          "optional": true,
+          "type": "source"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "burst_by_buff",
+      "name": "unit.burst_by_buff",
+      "returns": "BurstInfo",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "keyword",
+          "optional": false,
+          "type": "buff_keyword"
+        },
+        {
+          "name": "stacks",
+          "optional": true,
+          "type": "int"
+        },
+        {
+          "name": "turns",
+          "optional": true,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": true,
+          "type": "timing"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "add_buff",
+      "name": "unit.add_buff",
+      "returns": "bool",
+      "stability": "experimental"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "state",
+      "name": "unit.state",
+      "returns": "UnitState",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "sp",
+          "optional": false,
+          "type": "int"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "set_sp",
+      "name": "unit.set_sp",
+      "returns": "UnitInfo",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "type": "int"
+        },
+        {
+          "name": "timing",
+          "optional": true,
+          "type": "timing"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "add_shield",
+      "name": "unit.add_shield",
+      "returns": "UnitInfo",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "type": "int"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "set_speed",
+      "name": "unit.set_speed",
+      "returns": "UnitInfo",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "refresh_speed",
+      "name": "unit.refresh_speed",
+      "returns": "UnitInfo",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "unit",
+          "optional": false,
+          "type": "unit"
+        },
+        {
+          "name": "timing",
+          "optional": true,
+          "type": "timing"
+        }
+      ],
+      "class": "UnitOps",
+      "method": "break_",
+      "name": "unit.break",
+      "returns": "UnitInfo",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "mod",
+          "optional": false,
+          "type": "str"
+        },
+        {
+          "name": "watch",
+          "optional": false,
+          "type": "list_str"
+        },
+        {
+          "name": "hooks",
+          "optional": false,
+          "type": "list_obj"
+        }
+      ],
+      "class": "ContentOps",
+      "method": "plan",
+      "name": "content.plan",
+      "returns": "bool",
+      "stability": "stable"
+    },
+    {
+      "args": [
+        {
+          "name": "keywords",
+          "optional": false,
+          "type": "list_str"
+        },
+        {
+          "name": "icons",
+          "optional": false,
+          "type": "list_str"
+        },
+        {
+          "name": "icon_root",
+          "optional": true,
+          "type": "str"
+        }
+      ],
+      "class": "ContentOps",
+      "method": "register",
+      "name": "content.register",
+      "returns": "bool",
+      "stability": "stable"
+    }
+  ],
+  "spec_sha256": "778e2335eb1c6b82",
+  "version": "1.0"
+}

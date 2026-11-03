@@ -1,0 +1,1308 @@
+# LimbusPy 封装 API（A 层）契约源 —— 唯一真源，三向生成：
+#   tools/gen_contract.py → python/limbuspy/api/ops.py（类型化封装 + docstring）
+#                         → kernel/LimbusPy.Ops/OpsManifest.g.cs（C# 注册表/manifest）
+#                         → python/limbuspy/api/_contract_manifest.json（测试与运行时协商）
+#
+# 新增一个 op 的流程：在下面加一段 → 生成 → 在 C# 里实现同名方法（注册表会校验"契约有、
+# 实现缺"）→ 加 fixture 测试。Python 侧的壳、文档、manifest 都不用手写。
+#
+# 参数类型词汇表（Python 侧映射见 api/types.py，C# 侧见 OpArgs.cs）：
+#   unit           单位引用：UnitRef / 句柄 int / {"h":n} / {"instance_id":n}
+#   int / float / bool / str
+#   timing         BATTLE_EVENT_TIMING 成员名（字符串，如 "ON_SUCCESS_ATTACK"）
+#   source         DAMAGE_SOURCE_TYPE 成员名（如 "PASSIVE"）
+#   ability_source ABILITY_SOURCE_TYPE 成员名
+#   buff_keyword   BUFF_UNIQUE_KEYWORD 成员名（如 "SINKING"）
+#   unit_keyword   UNIT_KEYWORD 成员名
+
+[meta]
+version = "1.0"
+stability = "stable"
+
+# ======================================================================================
+# 读：一次 crossing 拿扁平数据，不返回引用（避免句柄/失效类问题）
+# ======================================================================================
+
+[[op]]
+name = "unit.info"
+class = "UnitOps"
+method = "info"
+summary = "读单位的基础状态，一次 crossing 拿全。"
+doc = """
+返回扁平 dict（`UnitInfo`），不含任何引用：适合记账、判断、日志。
+
+这是读状态的**首选**：比逐个读 `hp`/`max_hp`/`is_dead` 省 N-1 次往返。
+"""
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+]
+returns = "UnitInfo"
+returns_doc = "hp/max_hp/mp/position/is_dead/is_break/faction/instance_id/origin_id"
+
+[[op]]
+name = "unit.buff_stacks"
+class = "UnitOps"
+method = "buff_stacks"
+summary = "读某关键字 Buff 的当前层数。"
+doc = """
+按**主关键字**匹配（等价 Modular 的 `getbuffstack`）。没有该 buff 时返回 0，不报错。
+"""
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "keyword", type = "buff_keyword", doc = "Buff 关键字，如 \"SINKING\"" },
+]
+returns = "int"
+returns_doc = "层数（0 = 没有）"
+
+[[op]]
+name = "unit.buff_turns"
+class = "UnitOps"
+method = "buff_turns"
+summary = "读某关键字 Buff 的剩余回合。"
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "keyword", type = "buff_keyword", doc = "Buff 关键字" },
+]
+returns = "int"
+returns_doc = "剩余回合（0 = 没有）"
+
+[[op]]
+name = "unit.buffs"
+class = "UnitOps"
+method = "buffs"
+summary = "列出单位身上的全部 Buff（扁平，无引用）。"
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+]
+returns = "List[BuffInfo]"
+returns_doc = "每项：keyword/stacks/turns/max_stacks/max_turns/name"
+
+[[op]]
+name = "unit.has_keyword"
+class = "UnitOps"
+method = "has_keyword"
+summary = "单位是否带某个单位关键字（UNIT_KEYWORD）。"
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "keyword", type = "unit_keyword", doc = "单位关键字名，如 \"SINKING\"" },
+]
+returns = "bool"
+
+[[op]]
+name = "battle.units"
+class = "BattleOps"
+method = "units"
+summary = "全场单位（扁平快照），按 instance_id 升序。"
+doc = """
+一次调用拿全场：`[UnitInfo, ...]`。要“敌人/血量最低”这类筛选，在 Python 侧对返回值做即可，
+不必再逐单位往返。
+"""
+returns = "List[UnitInfo]"
+
+[[op]]
+name = "battle.states"
+class = "BattleOps"
+method = "states"
+summary = "全场单位的富状态一次拿全（unit.state 的批版）。"
+doc = """
+**属性组**的落地：遍历一次管理器字典，每个单位多读 buff 数量与等级，全部在同一个
+主线程时间片里完成。全场 11 个单位也只要 **1 次**跨进程往返，而逐个 `unit.state` 是 11 次。
+
+这是「批量 getter」相对「逐单位读」的核心价值 —— 后者是最容易写出来的 N+1。
+"""
+returns = "List[UnitState]"
+returns_doc = "每个单位的 UnitState（按 instance_id 升序）"
+
+[[op]]
+name = "battle.players"
+class = "BattleOps"
+method = "players"
+summary = "我方单位的扁平快照。"
+returns = "List[UnitInfo]"
+
+[[op]]
+name = "battle.enemies"
+class = "BattleOps"
+method = "enemies"
+summary = "敌方单位的扁平快照。"
+returns = "List[UnitInfo]"
+
+[[op]]
+name = "battle.damage"
+class = "BattleOps"
+method = "damage_many"
+summary = "对一组单位同时造成伤害（N 个目标 1 次往返）。"
+doc = """
+逐目标调 `unit.damage` 是 N 次往返；这个 op 是 **1 次**。
+单个目标解析失败不影响其它目标（返回列表里那一项 `applied=False`）。
+"""
+args = [
+  { name = "units", type = "list_obj", doc = "目标单位引用列表" },
+  { name = "amount", type = "int", doc = "伤害点数（正数）" },
+  { name = "source", type = "source", doc = "伤害来源枚举名", default = "\"PASSIVE\"" },
+  { name = "timing", type = "timing", doc = "事件时机枚举名", default = "\"ON_SUCCESS_ATTACK\"" },
+]
+returns = "List[UnitInfo]"
+
+[[op]]
+name = "battle.heal"
+class = "BattleOps"
+method = "heal_many"
+summary = "对一组单位同时治疗（N 个目标 1 次往返）。"
+args = [
+  { name = "units", type = "list_obj", doc = "目标单位引用列表" },
+  { name = "amount", type = "int", doc = "治疗点数（正数）" },
+  { name = "timing", type = "timing", doc = "事件时机枚举名", default = "\"ON_SUCCESS_ATTACK\"" },
+]
+returns = "List[UnitInfo]"
+
+# ── 随机（纯本地，不碰游戏对象）──────────────────────────────────────────────────────
+
+[[op]]
+name = "rng.int"
+class = "RngOps"
+method = "int"
+summary = "闭区间整数随机数（独立随机源，不污染游戏 RNG）。"
+args = [
+  { name = "min", type = "int", doc = "下界（含）", default = "0" },
+  { name = "max", type = "int", doc = "上界（含）", default = "100" },
+]
+returns = "int"
+
+[[op]]
+name = "rng.chance"
+class = "RngOps"
+method = "chance"
+summary = "千分位概率判定（permille=300 即 30%）。"
+args = [
+  { name = "permille", type = "int", doc = "千分位概率 0..1000" },
+]
+returns = "bool"
+
+[[op]]
+name = "rng.pick"
+class = "RngOps"
+method = "pick"
+summary = "从字符串列表里随机取一个（空列表返回空串）。"
+args = [
+  { name = "items", type = "list_str", doc = "候选列表" },
+]
+returns = "str"
+
+[[op]]
+name = "battle.round"
+class = "BattleOps"
+method = "round"
+summary = "当前回合数；拿不到时返回 None。"
+returns = "Optional[int]"
+
+# ======================================================================================
+# 写：原子多步。C# 侧在同一个主线程时间片里做完（读-算-写），Python 只发一条指令。
+# ======================================================================================
+
+[[op]]
+name = "unit.damage"
+class = "UnitOps"
+method = "damage"
+summary = "对单位造成伤害（内部处理 ChangeHp 的语义与枚举）。"
+doc = """
+**这是打伤害的唯一推荐入口。** `ChangeHp` 的 `value` 是「目标 HP 值」而不是增量、还要补齐
+枚举与哨兵值——这些坑都在 C# 侧封掉了。
+
+返回伤害后的 `UnitInfo`（省一次读）；`applied=False` 表示没有实际改动（已死/无效目标）。
+"""
+stability = "stable"
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "amount", type = "int", doc = "伤害点数（正数）" },
+  { name = "source", type = "source", doc = "伤害来源枚举名", default = "\"PASSIVE\"" },
+  { name = "timing", type = "timing", doc = "事件时机枚举名", default = "\"ON_SUCCESS_ATTACK\"" },
+]
+returns = "UnitInfo"
+returns_doc = "伤害后的状态"
+
+[[op]]
+name = "unit.heal"
+class = "UnitOps"
+method = "heal"
+summary = "治疗单位（走游戏自己的回复管线，不超上限）。"
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "amount", type = "int", doc = "治疗点数（正数）" },
+  { name = "timing", type = "timing", doc = "事件时机枚举名", default = "\"ON_SUCCESS_ATTACK\"" },
+]
+returns = "UnitInfo"
+returns_doc = "治疗后的状态"
+
+[[op]]
+name = "unit.set_hp"
+class = "UnitOps"
+method = "set_hp"
+summary = "把单位 HP 直接设为某个值（会走 OnChangeHp 通知）。"
+doc = """
+等价 `ChangeHp(target_hp, ...)`。扣血请优先用 `damage()`，它更不容易写错。
+"""
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "hp", type = "int", doc = "目标 HP 值（不是增量）" },
+  { name = "source", type = "source", doc = "伤害来源枚举名", default = "\"PASSIVE\"" },
+  { name = "timing", type = "timing", doc = "事件时机枚举名", default = "\"ON_SUCCESS_ATTACK\"" },
+]
+returns = "UnitInfo"
+
+[[op]]
+name = "unit.add_passive"
+class = "UnitOps"
+method = "add_passive"
+summary = "按被动 id 施加一个被动（最安全的“施加效果”入口）。"
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "passive_id", type = "int", doc = "PassiveData 的 id" },
+]
+returns = "bool"
+returns_doc = "true = 已施加"
+
+[[op]]
+name = "unit.burst_by_buff"
+class = "UnitOps"
+method = "burst_by_buff"
+summary = "把某关键字的叠层换成一笔伤害（读层数→算伤害→改血，全在一个时间片里完成）。"
+doc = """
+**复合 op 的样板**：Python 侧一次调用，C# 侧完成「读层数 → 夹上限 → 算目标 HP → ChangeHp」。
+如果拆成 Python 的多步，中间会被帧边界/其它事件插进来，读到的是旧层数、打到的是旧血量。
+
+返回 `BurstInfo`：`{stacks, damage, hp_before, hp_after, applied}`。
+"""
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "keyword", type = "buff_keyword", doc = "Buff 关键字，如 \"SINKING\"" },
+  { name = "per_stack", type = "int", doc = "每层换多少伤害", default = "3" },
+  { name = "max_stacks", type = "int", doc = "参与结算的最大层数", default = "6" },
+  { name = "source", type = "source", doc = "伤害来源枚举名", default = "\"PASSIVE\"" },
+]
+returns = "BurstInfo"
+returns_doc = "stacks/damage/hp_before/hp_after/applied"
+
+[[op]]
+name = "unit.add_buff"
+class = "UnitOps"
+method = "add_buff"
+summary = "给单位加一个 Buff（实验性：依赖 BuffDetail.AddBuff 的时序语义）。"
+doc = """
+走游戏自己的 Buff 施加管线（`BuffDetail.AddBuff`），参数按「层数/回合」的直觉给。
+
+**实验性**：真实时序（activeRound、history 列表）在真机上需要验证；失败时返回 False 而不是抛错。
+"""
+stability = "experimental"
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "keyword", type = "buff_keyword", doc = "Buff 关键字" },
+  { name = "stacks", type = "int", doc = "层数", default = "1" },
+  { name = "turns", type = "int", doc = "回合数", default = "1" },
+  { name = "timing", type = "timing", doc = "事件时机枚举名", default = "\"ON_SUCCESS_ATTACK\"" },
+]
+returns = "bool"
+returns_doc = "true = 已施加"
+
+# ── 单位状态（一次 crossing 的聚合读）──────────────────────────────────────────────────
+
+[[op]]
+name = "unit.state"
+class = "UnitOps"
+method = "state"
+summary = "读单位状态（info 的超集：多带 buff 数量与等级），一次 crossing。"
+doc = """
+`unit.info` 的加料版：多返回 `buff_count` 与 `level`。仍然是**一次**往返。
+
+为什么不把所有属性都塞进来：每多读一个字段就多一次游戏侧调用。要全景请用 B 层，
+这里只收"判断时几乎一定要看"的那几个。
+"""
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+]
+returns = "UnitState"
+returns_doc = "info 的全部字段 + buff_count / level"
+
+[[op]]
+name = "unit.set_sp"
+class = "UnitOps"
+method = "set_sp"
+summary = "把单位理智（SP/MP）设为某个值，走游戏自己的 ChangeMp。"
+doc = """
+返回改完之后的 `unit.state`（省一次读）；失败时 `applied=False`。
+
+负数理智表示恐慌计数，`ChangeMp` 接受负值。
+"""
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "sp", type = "int", doc = "目标理智值（可负）" },
+]
+returns = "UnitInfo"
+returns_doc = "改完之后的状态"
+
+[[op]]
+name = "unit.add_shield"
+class = "UnitOps"
+method = "add_shield"
+summary = "给单位加护盾（AddShield）。"
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "value", type = "int", doc = "护盾值（正数）" },
+  { name = "timing", type = "timing", doc = "事件时机枚举名", default = "\"ON_SUCCESS_ATTACK\"" },
+]
+returns = "UnitInfo"
+returns_doc = "加完之后的状态"
+
+# ── 速度 / 崩溃 ─────────────────────────────────────────────────────────────────────
+
+[[op]]
+name = "unit.set_speed"
+class = "UnitOps"
+method = "set_speed"
+summary = "改单位速度并重算行动顺序（SetSpeed + RefreshSpeed）。"
+doc = """
+只改值不刷新的话，行动顺序要等下一回合才生效 —— 这个坑在 C# 侧封掉了。
+"""
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "value", type = "int", doc = "新的速度值" },
+]
+returns = "UnitInfo"
+returns_doc = "改完之后的状态"
+
+[[op]]
+name = "unit.refresh_speed"
+class = "UnitOps"
+method = "refresh_speed"
+summary = "只重算速度与行动顺序，不改值。"
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+]
+returns = "UnitInfo"
+
+[[op]]
+name = "unit.break"
+class = "UnitOps"
+method = "break_"
+summary = "强制让单位进入崩溃（break）状态。"
+doc = """
+`method = "break_"` 是因为 `break` 是 Python 关键字；C# 侧的方法名由生成器还原成 `Break`。
+"""
+args = [
+  { name = "unit", type = "unit", doc = "目标单位" },
+  { name = "timing", type = "timing", doc = "事件时机枚举名", default = "\"ON_SUCCESS_ATTACK\"" },
+]
+returns = "UnitInfo"
+returns_doc = "崩溃之后的状态"
+
+# ── 内容注册（零往返谓词的前提）──────────────────────────────────────────────────────
+
+[[op]]
+name = "content.plan"
+class = "ContentOps"
+method = "plan"
+summary = "把一个 mod 关心的 buff 位图计划告诉内核。"
+doc = """
+注册层用它把「这个 mod 的哪些 buff 要在时点回调里判断」告诉 C#。之后补丁回调里
+C# 会按同一份顺序算出 `mask_victim` / `mask_self` 塞进 payload ——
+于是 `victim.has(Buff)` 在 Python 侧只是一次整数按位与，**0 次跨进程往返**。
+
+`watch` 的下标就是位序号：`watch[i]` 存在 → 第 i 位为 1。
+老内核没有这个 op 时 Python 侧静默跳过，谓词退化为恒假（不报错、不崩）。
+"""
+args = [
+  { name = "mod", type = "str", doc = "模组名（诊断用）" },
+  { name = "watch", type = "list_str", doc = "关心的 Buff 关键字，下标即位序号" },
+  { name = "hooks", type = "list_obj", doc = "每个时点要哪些位：{timing, victim:[位], self:[位]}" },
+]
+returns = "bool"
+returns_doc = "true = 计划已接受"
+
+[[op]]
+name = "content.register"
+class = "ContentOps"
+method = "register"
+summary = "把自定义 Buff 的关键字真注入游戏枚举，并登记图标。"
+doc = """
+这是自定义 Buff 的入口。它不是"一次 API 调用"就完事 —— 自定义 Buff 是
+**三件事的组合**：枚举注入（本 op）、图标补丁（本 op 顺带登记）、本地化（暂未做）。
+
+id 从 **24576（0x6000）** 起、步长 1。为什么不是 Lethe 的 `4097 + 2k`：原版
+`BUFF_UNIQUE_KEYWORD` 共 2124 个成员、最大 2123 且就是 `None` 哨兵，1000→2123 密排；
+24576 有约 2.2 万个空号，天然跨过哨兵，也能和 Lethe 共存。
+
+幂等；失败返回 false 而**不抛** —— 注入不可用不该让 mod 起不来。
+"""
+args = [
+  { name = "keywords", type = "list_str", doc = "要注入的 Buff 关键字（会做大写规范化）" },
+  { name = "icons", type = "list_str", doc = "与 keywords 同序的图标文件名（可空字符串）" },
+  { name = "icon_root", type = "str", doc = "图标根目录；空则按相对路径解析", default = "\"\"" },
+]
+returns = "bool"
+returns_doc = "true = 注入成功"
+
+# ======================================================================================
+# 时机（hook）：C# 侧在补丁回调里把参数拆成扁平 payload，Python 拿到的是文档化结构。
+# `csharp` 段是给 C# 侧的挂点说明；payload 段生成 Python 的 dataclass + on() 的 overload。
+#
+# ── payload 字段怎么绑定到游戏方法的参数 ───────────────────────────────────────────────
+# 每个 payload 字段用 `arg = "<目标方法的参数名>"` 声明来源（**用参数名，不用位置下标**）：
+#   * 参数名可以在安装期被校验：名字对不上直接进 problems，而不是静默取错位；
+#   * 参数名能唯一定位重载：AccessTools.Method 不传类型时遇同名重载会选错，而 dump.cs 里
+#     OnSucceedAttack 有四种签名共存（只有一种在 BattleUnitModel 上）。
+# 特殊来源：
+#   arg = "self"            → 打补丁的实例（BattleUnitModel 自己）
+#   arg = "return"          → 返回值（配合 kind = "prefix_result" 改值）
+#   arg = "foo.bar"         → 参数对象上的成员
+#   const = <字面量>        → 常量字段
+#   static = "Type.Method"  → 无参数来源（例如当前回合数）
+# `params` 声明目标方法的完整参数名表，用于安装期与 CI 的签名漂移检测。
+# ======================================================================================
+
+[[hook]]
+timing = "DamageDealt"
+summary = "任意来源的 HP 变化（含非本 mod 造成的）。"
+csharp = { target = "BattleUnitModel", method = "OnChangeHp", kind = "postfix" }
+params = ["oldHp", "newHp", "dmgSrcType", "timing", "attackerOrNull", "actionOrNull", "keyword"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "HP 变化的单位" },
+  { name = "attacker", arg = "attackerOrNull", type = "unit", optional = true, doc = "来源单位（可能为空）" },
+  { name = "old_hp", arg = "oldHp", type = "int", doc = "变化前 HP" },
+  { name = "new_hp", arg = "newHp", type = "int", doc = "变化后 HP" },
+  { name = "source", arg = "dmgSrcType", type = "str", doc = "伤害来源枚举名" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+  { name = "keyword", arg = "keyword", type = "str", doc = "关联的 Buff 关键字名（可能为空）" },
+]
+
+[[hook]]
+timing = "AttackSucceeded"
+summary = "一次攻击命中结算完成（带伤害分解）。"
+csharp = { target = "BattleUnitModel", method = "OnSucceedAttack", kind = "postfix" }
+params = ["action", "coin", "target", "finalDmg", "realDmg", "realHpDmg", "isCritical", "isWinDuel", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "攻击方" },
+  { name = "target", arg = "target", type = "unit", optional = true, doc = "受击方" },
+  { name = "final_damage", arg = "finalDmg", type = "int", doc = "最终伤害" },
+  { name = "real_damage", arg = "realDmg", type = "int", doc = "实际伤害" },
+  { name = "hp_damage", arg = "realHpDmg", type = "int", doc = "实际扣血" },
+  { name = "is_critical", arg = "isCritical", type = "bool", doc = "是否暴击" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "UnitDied"
+summary = "单位死亡。"
+csharp = { target = "BattleUnitModel", method = "OnDie", kind = "postfix" }
+params = ["killerOrNull", "actionOrNull", "timing", "dmgSrcType", "keyword"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "死亡单位" },
+  { name = "killer", arg = "killerOrNull", type = "unit", optional = true, doc = "击杀者（可能为空）" },
+  { name = "source", arg = "dmgSrcType", type = "str", doc = "伤害来源枚举名" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "UnitBroken"
+summary = "单位进入崩溃（break）状态。"
+csharp = { target = "BattleUnitModel", method = "OnBreak", kind = "postfix" }
+params = ["timing", "attackerOrNull", "actionOrNull", "dmgSrcType", "isBreakForcely"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "崩溃单位" },
+  { name = "attacker", arg = "attackerOrNull", type = "unit", optional = true, doc = "造成崩溃的单位" },
+  { name = "is_forced", arg = "isBreakForcely", type = "bool", doc = "是否强制击溃" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "TurnStarted"
+summary = "单位回合开始（日志之后）。"
+csharp = { target = "BattleUnitModel", method = "OnStartTurn_AfterLog", kind = "postfix" }
+params = ["action", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "开始回合的单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+# ======================================================================================
+# 以下时点的 `params` 全部逐字取自 il2csharp 最新全量导出（full0，2026-11-02，带方法体），
+# 并由 tools/check_hook_bindings.py 在 CI 里持续比对。**不要凭 dump.cs 猜签名** ——
+# 那三份静态产物不是同一个游戏版本，且同名方法跨类型重复很多。
+# 加一个新时点的流程：抄一个最近的块 → 改 timing/csharp/params/payload → 生成 → 跑校验脚本。
+# 不需要改任何 C#。
+# ======================================================================================
+
+[[hook]]
+timing = "HpDamageTaken"
+summary = "单位受到 HP 伤害（带来源、关联单位与 Buff 关键字）。"
+csharp = { target = "BattleUnitModel", method = "OnTakeHpDamage", kind = "postfix" }
+params = ["finalDamage", "hpDamage", "timing", "sourceType", "attackerOrNull", "actionOrNull", "relatedUnitsOrNull", "keyword", "attributeOrNone", "atkTypeOrNone"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "受伤单位" },
+  { name = "attacker", arg = "attackerOrNull", type = "unit", optional = true, doc = "来源单位（可能为空）" },
+  { name = "final_damage", arg = "finalDamage", type = "int", doc = "最终伤害" },
+  { name = "hp_damage", arg = "hpDamage", type = "int", doc = "实际扣血" },
+  { name = "source", arg = "sourceType", type = "str", doc = "伤害来源枚举名" },
+  { name = "keyword", arg = "keyword", type = "str", doc = "关联的 Buff 关键字名（可能为空）" },
+  { name = "attribute", arg = "attributeOrNone", type = "str", doc = "伤害属性（罪孽类型）枚举名" },
+  { name = "atk_type", arg = "atkTypeOrNone", type = "str", doc = "攻击类型枚举名" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "MpDamaged"
+summary = "单位受到理智（MP/SP）伤害。"
+csharp = { target = "BattleUnitModel", method = "OnTakeMpDamage", kind = "postfix" }
+params = ["attacker", "value", "timing", "sourceType", "mentalConditionOrNone", "actionOrNull", "buffKeyword"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "受伤单位" },
+  { name = "attacker", arg = "attacker", type = "unit", optional = true, doc = "来源单位" },
+  { name = "value", arg = "value", type = "int", doc = "理智伤害值" },
+  { name = "source", arg = "sourceType", type = "str", doc = "伤害来源枚举名" },
+  { name = "keyword", arg = "buffKeyword", type = "str", doc = "关联 Buff 关键字（可能为空）" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "MpChanged"
+summary = "单位理智值发生变化（任何来源，含回复）。"
+csharp = { target = "BattleUnitModel", method = "OnChangeMp", kind = "postfix" }
+params = ["oldMp", "newMp"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "变化单位" },
+  { name = "old_mp", arg = "oldMp", type = "int", doc = "变化前理智" },
+  { name = "new_mp", arg = "newMp", type = "int", doc = "变化后理智" },
+]
+
+# ── 硬币 / 拼点 ─────────────────────────────────────────────────────────────────────
+
+[[hook]]
+timing = "CoinStarted"
+summary = "一枚硬币开始结算。"
+csharp = { target = "BattleUnitModel", method = "OnStartCoin", kind = "postfix" }
+params = ["action", "coin", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "行动单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "CoinRolled"
+summary = "一枚硬币掷出结果（攻击后）。"
+csharp = { target = "BattleUnitModel", method = "OnRollOneCoin_AfterAttack", kind = "postfix" }
+params = ["action", "coin", "value", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "行动单位" },
+  { name = "value", arg = "value", type = "int", doc = "掷出的威力值" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "ClashStarted"
+summary = "拼点（duel）开始。"
+csharp = { target = "BattleUnitModel", method = "OnStartDuel", kind = "postfix" }
+params = ["ownerAction", "opponentAction", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "己方单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "ClashWon"
+summary = "拼点胜利。"
+csharp = { target = "BattleUnitModel", method = "OnWinDuel", kind = "postfix" }
+params = ["ownerAction", "opponentAction", "parryingCount", "remainedOwenrCoin", "remainedOpponentCoin", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "胜利方单位" },
+  { name = "parrying_count", arg = "parryingCount", type = "int", doc = "第几次对拼" },
+  { name = "remained_coin", arg = "remainedOwenrCoin", type = "int", doc = "剩余硬币数（己方）" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "ClashLost"
+summary = "拼点失败。"
+csharp = { target = "BattleUnitModel", method = "OnLoseDuel", kind = "postfix" }
+params = ["ownerAction", "opponentAction", "parryingCount", "remainedOwenrCoin", "remainedOpponentCoin", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "失败方单位" },
+  { name = "parrying_count", arg = "parryingCount", type = "int", doc = "第几次对拼" },
+  { name = "remained_coin", arg = "remainedOwenrCoin", type = "int", doc = "剩余硬币数（己方）" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+# ── 技能 / 行动 ─────────────────────────────────────────────────────────────────────
+
+[[hook]]
+timing = "SkillStarted"
+summary = "单位开始一个行为（技能/防御/闪避）。"
+csharp = { target = "BattleUnitModel", method = "OnStartBehaviour", kind = "postfix" }
+params = ["action", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "行动单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "SkillEnded"
+summary = "单位的行为结束。"
+csharp = { target = "BattleUnitModel", method = "OnEndBehaviour", kind = "postfix" }
+params = ["action", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "行动单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "AttackConfirmed"
+summary = "攻击命中被确认（伤害结算之前）。"
+csharp = { target = "BattleUnitModel", method = "OnAttackConfirmed", kind = "postfix" }
+params = ["action", "coin", "target", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "攻击方" },
+  { name = "target", arg = "target", type = "unit", optional = true, doc = "受击方" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "AttackEnded"
+summary = "一次攻击结束（带累计伤害）。"
+csharp = { target = "BattleUnitModel", method = "OnEndAttack", kind = "postfix" }
+params = ["action", "isWinDuel", "accumulatedDmg", "accumulatedHpDmg", "timing", "duelLog"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "攻击方" },
+  { name = "is_win_duel", arg = "isWinDuel", type = "bool", doc = "是否拼点获胜" },
+  { name = "total_damage", arg = "accumulatedDmg", type = "int", doc = "累计伤害" },
+  { name = "total_hp_damage", arg = "accumulatedHpDmg", type = "int", doc = "累计扣血" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+# ── 回合 / 战斗流程 ─────────────────────────────────────────────────────────────────
+
+[[hook]]
+timing = "TurnStarting"
+summary = "单位回合开始（日志之前）。"
+csharp = { target = "BattleUnitModel", method = "OnStartTurn_BeforeLog", kind = "postfix" }
+params = ["action", "isDuelExpected", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "开始回合的单位" },
+  { name = "is_duel_expected", arg = "isDuelExpected", type = "bool", doc = "是否会进入拼点" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "TurnEnded"
+summary = "单位回合结束。"
+csharp = { target = "BattleUnitModel", method = "OnEndTurn", kind = "postfix" }
+params = ["action", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "结束回合的单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "RoundStarted"
+summary = "回合（round）开始。"
+csharp = { target = "BattleUnitModel", method = "OnRoundStart_After_Event", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "RoundEnded"
+summary = "回合（round）结束。"
+csharp = { target = "BattleUnitModel", method = "OnRoundEnd", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "CommandCompleted"
+summary = "指令阶段完成（本回合的行动已全部排定）。"
+csharp = { target = "BattleUnitModel", method = "OnCompleteCommand", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "BattleStarted"
+summary = "战斗开始。"
+csharp = { target = "BattleUnitModel", method = "OnBattleStart", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "BattleEnded"
+summary = "战斗结束。"
+csharp = { target = "BattleUnitModel", method = "OnBattleEnd", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "WaveStarted"
+summary = "波次开始。"
+csharp = { target = "BattleUnitModel", method = "OnWaveStart", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "StageStarted"
+summary = "关卡开始。"
+csharp = { target = "BattleUnitModel", method = "OnStageStart", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+# ── 死亡 / 崩溃 / 退场 ──────────────────────────────────────────────────────────────
+
+[[hook]]
+timing = "EnemyKilled"
+summary = "击杀目标（击杀者视角）。"
+csharp = { target = "BattleUnitModel", method = "OnKillTarget", kind = "postfix" }
+params = ["actionOrNull", "coinOrNull", "target", "dmgSrcType", "timing", "killer"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "击杀者" },
+  { name = "target", arg = "target", type = "unit", optional = true, doc = "被击杀者" },
+  { name = "source", arg = "dmgSrcType", type = "str", doc = "伤害来源枚举名" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "ZeroHp"
+summary = "单位血量归零（死亡结算之前）。"
+csharp = { target = "BattleUnitModel", method = "OnZeroHp", kind = "postfix" }
+params = []
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "HP 归零的单位" },
+]
+
+[[hook]]
+timing = "UnitRetreated"
+summary = "单位退场。"
+csharp = { target = "BattleUnitModel", method = "OnRetreat", kind = "postfix" }
+params = ["triggerUnit", "retreatKeyword", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "退场单位" },
+  { name = "trigger", arg = "triggerUnit", type = "unit", optional = true, doc = "触发退场的单位" },
+  { name = "keyword", arg = "retreatKeyword", type = "str", doc = "退场关键字（可能为空）" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+# ── Buff / 护盾 ─────────────────────────────────────────────────────────────────────
+
+[[hook]]
+timing = "BuffUsed"
+summary = "一个 Buff 被消耗/结算。"
+csharp = { target = "BattleUnitModel", method = "OnUseBuff", kind = "postfix" }
+params = ["keyword", "stack", "turn", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "Buff 所在的单位" },
+  { name = "keyword", arg = "keyword", type = "str", doc = "Buff 关键字名" },
+  { name = "stack", arg = "stack", type = "int", doc = "消耗的层数" },
+  { name = "turn", arg = "turn", type = "int", doc = "消耗的回合数" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "BuffLost"
+summary = "单位失去一个罪孽系 Buff 的层数。"
+csharp = { target = "BattleUnitModel", method = "OnLoseSinBuff", kind = "postfix" }
+params = ["keyword", "stack", "turn", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "Buff 所在的单位" },
+  { name = "keyword", arg = "keyword", type = "str", doc = "Buff 关键字名" },
+  { name = "stack", arg = "stack", type = "int", doc = "失去的层数" },
+  { name = "turn", arg = "turn", type = "int", doc = "失去的回合数" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "ShieldAdded"
+summary = "单位获得护盾。"
+csharp = { target = "BattleUnitModel", method = "OnAddShield", kind = "postfix" }
+params = ["timing", "value"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "获得护盾的单位" },
+  { name = "value", arg = "value", type = "int", doc = "护盾值" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+# ======================================================================================
+# 第二批时点（长尾）：拼点 / 硬币 / 伤害回复 / Buff 交互 / 单位进出
+# 同样全部取自 full0 的真实参数名，由 tools/check_hook_bindings.py 把关。
+# ======================================================================================
+
+[[hook]]
+timing = "ParryWon"
+summary = "对拼（parrying）获胜。"
+csharp = { target = "BattleUnitModel", method = "OnWinParrying", kind = "postfix" }
+params = ["ownerAction", "opponentAction", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "获胜方" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "ParryLost"
+summary = "对拼（parrying）失败。"
+csharp = { target = "BattleUnitModel", method = "OnLoseParrying", kind = "postfix" }
+params = ["ownerAction", "opponentAction", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "失败方" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "CoinEnded"
+summary = "一枚硬币结算结束。"
+csharp = { target = "BattleUnitModel", method = "OnEndCoin_AfterLog", kind = "postfix" }
+params = ["action", "coin", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "行动单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "CoinChecked"
+summary = "硬币结果判定完成。"
+csharp = { target = "BattleUnitModel", method = "OnResult_AfterCheckCoin", kind = "postfix" }
+params = ["action", "coin", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "行动单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "BeforeAttack"
+summary = "攻击结算之前。"
+csharp = { target = "BattleUnitModel", method = "OnBeforeAttack", kind = "postfix" }
+params = ["action", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "攻击方" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "BreakForced"
+summary = "被强制击溃（不经过普通崩溃流程）。"
+csharp = { target = "BattleUnitModel", method = "OnBreakForcely", kind = "postfix" }
+params = ["attackerOrNull", "srcType", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "被击溃单位" },
+  { name = "attacker", arg = "attackerOrNull", type = "unit", optional = true, doc = "来源单位" },
+  { name = "source", arg = "srcType", type = "str", doc = "伤害来源枚举名" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "ShieldReduced"
+summary = "护盾被削减。"
+csharp = { target = "BattleUnitModel", method = "OnReduceShield", kind = "postfix" }
+params = ["timing", "old", "value", "attackerOrNull"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "护盾所属单位" },
+  { name = "old", arg = "old", type = "int", doc = "削减前的护盾值" },
+  { name = "value", arg = "value", type = "int", doc = "削减量" },
+  { name = "attacker", arg = "attackerOrNull", type = "unit", optional = true, doc = "来源单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "ShieldDestroyed"
+summary = "护盾被打破。"
+csharp = { target = "BattleUnitModel", method = "OnDestroyShield", kind = "postfix" }
+params = ["timing", "attackerOrNull"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "护盾所属单位" },
+  { name = "attacker", arg = "attackerOrNull", type = "unit", optional = true, doc = "来源单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "MentalCollapse"
+summary = "精神崩溃。"
+csharp = { target = "BattleUnitModel", method = "OnMentalCollapse", kind = "postfix" }
+params = []
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "精神崩溃的单位" },
+]
+
+[[hook]]
+timing = "FakeDie"
+summary = "假死（免死效果触发）。"
+csharp = { target = "BattleUnitModel", method = "OnFakeDie", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "本该死亡的单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "HpHealed"
+summary = "HP 回复结算完成。"
+csharp = { target = "BattleUnitModel", method = "OnAfterTryTakeHpHeal", kind = "postfix" }
+params = ["healerOrNull", "actionOrNull", "tryHeal", "resultHeal", "srcType", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "被治疗单位" },
+  { name = "healer", arg = "healerOrNull", type = "unit", optional = true, doc = "治疗者" },
+  { name = "try_heal", arg = "tryHeal", type = "int", doc = "尝试回复量" },
+  { name = "result_heal", arg = "resultHeal", type = "int", doc = "实际回复量" },
+  { name = "source", arg = "srcType", type = "str", doc = "来源枚举名" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "MpHealed"
+summary = "理智（MP/SP）回复结算完成。"
+csharp = { target = "BattleUnitModel", method = "OnAfterTryTakeMpHeal", kind = "postfix" }
+params = ["healerOrNull", "tryHeal", "resultHeal", "srcType", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "被回复单位" },
+  { name = "healer", arg = "healerOrNull", type = "unit", optional = true, doc = "来源单位" },
+  { name = "try_heal", arg = "tryHeal", type = "int", doc = "尝试回复量" },
+  { name = "result_heal", arg = "resultHeal", type = "int", doc = "实际回复量" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "SineBuffActivated"
+summary = "罪孽系 Buff 效果被激活。"
+csharp = { target = "BattleUnitModel", method = "OnActivateSinBuffEffect", kind = "postfix" }
+params = ["keyword", "stack", "turn", "takeDmg", "giverOrNull", "actionOrNull", "timing", "isForced", "isCritical"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "Buff 所属单位" },
+  { name = "keyword", arg = "keyword", type = "str", doc = "Buff 关键字名" },
+  { name = "stack", arg = "stack", type = "int", doc = "层数" },
+  { name = "turn", arg = "turn", type = "int", doc = "回合数" },
+  { name = "take_damage", arg = "takeDmg", type = "int", doc = "造成的伤害" },
+  { name = "giver", arg = "giverOrNull", type = "unit", optional = true, doc = "施加者" },
+  { name = "is_forced", arg = "isForced", type = "bool", doc = "是否强制触发" },
+  { name = "is_critical", arg = "isCritical", type = "bool", doc = "是否暴击" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "BuffBlocked"
+summary = "一次 Buff 施加被拦截。"
+csharp = { target = "BattleUnitModel", method = "OnBlockGivingBuff", kind = "postfix" }
+params = ["target", "keyword", "timing", "coinOrNull", "isCritical"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "施加者" },
+  { name = "target", arg = "target", type = "unit", optional = true, doc = "目标单位" },
+  { name = "keyword", arg = "keyword", type = "str", doc = "被拦截的 Buff 关键字" },
+  { name = "is_critical", arg = "isCritical", type = "bool", doc = "是否暴击上下文" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "BuffFailedToGive"
+summary = "Buff 施加失败。"
+csharp = { target = "BattleUnitModel", method = "OnFailedToGiveBuff", kind = "postfix" }
+params = ["target", "keyword", "stack", "turn", "activeRound", "abilitySrcType", "timing", "actionOrNull"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "施加者" },
+  { name = "target", arg = "target", type = "unit", optional = true, doc = "目标单位" },
+  { name = "keyword", arg = "keyword", type = "str", doc = "Buff 关键字" },
+  { name = "stack", arg = "stack", type = "int", doc = "尝试施加的层数" },
+  { name = "turn", arg = "turn", type = "int", doc = "尝试施加的回合数" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "CoinConsumed"
+summary = "硬币被消耗并挂上 Buff。"
+csharp = { target = "BattleUnitModel", method = "OnUseCoinConsume", kind = "postfix" }
+params = ["action", "coin", "keyword", "stack", "turn", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "行动单位" },
+  { name = "keyword", arg = "keyword", type = "str", doc = "Buff 关键字" },
+  { name = "stack", arg = "stack", type = "int", doc = "层数" },
+  { name = "turn", arg = "turn", type = "int", doc = "回合数" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "BuffStackBySkill"
+summary = "技能消耗了某个 Buff 的层数。"
+csharp = { target = "BattleUnitModel", method = "OnUseBuffStackBySkill", kind = "postfix" }
+params = ["action", "bufKeyword", "stack", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "行动单位" },
+  { name = "keyword", arg = "bufKeyword", type = "str", doc = "Buff 关键字" },
+  { name = "stack", arg = "stack", type = "int", doc = "消耗层数" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "UnitAdded"
+summary = "有新单位加入战斗（召唤/增援）。"
+csharp = { target = "BattleUnitModel", method = "OnAddUnit", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "已在场的单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "UnitReturned"
+summary = "退场的单位返回战场。"
+csharp = { target = "BattleUnitModel", method = "OnReturnToField", kind = "postfix" }
+params = ["retreatTurn", "triggerUnit", "retreatKeyword", "batonPassTargetAbilities", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "返回的单位" },
+  { name = "retreat_turn", arg = "retreatTurn", type = "int", doc = "退场时的回合数" },
+  { name = "trigger", arg = "triggerUnit", type = "unit", optional = true, doc = "触发返回的单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "EnemyBrokenByAttacker"
+summary = "把敌人打出崩溃（攻击者视角，带本次扣血）。"
+csharp = { target = "BattleUnitModel", method = "OnEnemyBrokenByAttacker", kind = "postfix" }
+params = ["breaked", "timing", "actionOrNull", "coinOrNull", "dmgSrcType", "hpDmg"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "攻击者" },
+  { name = "target", arg = "breaked", type = "unit", optional = true, doc = "被打崩的敌人" },
+  { name = "hp_damage", arg = "hpDmg", type = "int", doc = "本次扣血" },
+  { name = "source", arg = "dmgSrcType", type = "str", doc = "伤害来源枚举名" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+
+# ======================================================================================
+# 第三批时点（长尾 ×2）：拼点细节 / 硬币前置 / 回合与波次边界 / 免死 / 其它单位事件
+# 参数名同样逐字取自 full0，由 tools/check_hook_bindings.py 把关。
+# ======================================================================================
+
+[[hook]]
+timing = "TurnStartBefore"
+summary = "单位回合开始之前（日志之前）。"
+csharp = { target = "BattleUnitModel", method = "OnBeforeTurn", kind = "postfix" }
+params = ["action", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "即将开始回合的单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "ParryResolved"
+summary = "一次对拼结算完成。"
+csharp = { target = "BattleUnitModel", method = "OnAfterParryingOnce_AfterLog", kind = "postfix" }
+params = ["selfAction", "oppoAction", "timing", "lastLogOrNull"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "己方单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "DuelEnded"
+summary = "拼点（duel）结束。"
+csharp = { target = "BattleUnitModel", method = "OnDuelAfter_AfterLog", kind = "postfix" }
+params = ["action", "selfRemainedCoin", "oppoRemainedCoin", "result", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "己方单位" },
+  { name = "self_coin", arg = "selfRemainedCoin", type = "int", doc = "己方剩余硬币" },
+  { name = "oppo_coin", arg = "oppoRemainedCoin", type = "int", doc = "对方剩余硬币" },
+  { name = "result", arg = "result", type = "str", doc = "拼点结果枚举名" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "CoinBeforeStart"
+summary = "一枚硬币即将开始结算（可在改值泳道里干预）。"
+csharp = { target = "BattleUnitModel", method = "OnBeforeStartCoin", kind = "postfix" }
+params = ["action", "coin", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "行动单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "AttackOnOtherEnded"
+summary = "某单位对另一单位的攻击结束。"
+csharp = { target = "BattleUnitModel", method = "OnEndAttackOtherUnit", kind = "postfix" }
+params = ["action", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "被攻击方视角的单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "EnemyPartDestroyed"
+summary = "打掉了敌人的某个部位。"
+csharp = { target = "BattleUnitModel", method = "OnEnemyPartDestroyedByAttacker", kind = "postfix" }
+params = ["breaked", "timing", "actionOrNull", "coinOrNull", "dmgSrcType"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "攻击者" },
+  { name = "target", arg = "breaked", type = "unit", optional = true, doc = "被破坏部位所属单位" },
+  { name = "source", arg = "dmgSrcType", type = "str", doc = "伤害来源枚举名" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "UnitAddedAfter"
+summary = "新单位加入战斗之后（全部初始化完成）。"
+csharp = { target = "BattleUnitModel", method = "OnAddUnit_After", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "已在场的单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "RoundStartBefore"
+summary = "回合（round）开始之前。"
+csharp = { target = "BattleUnitModel", method = "OnRoundStart_Before", kind = "postfix" }
+params = []
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+]
+
+[[hook]]
+timing = "RoundStartSlotState"
+summary = "回合开始时槽位状态已就绪。"
+csharp = { target = "BattleUnitModel", method = "OnRoundStart_After_RelatedSlotState", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "RoundEndDead"
+summary = "回合结束时的阵亡结算。"
+csharp = { target = "BattleUnitModel", method = "OnRoundEnd_Dead", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "WaveEnded"
+summary = "波次结束。"
+csharp = { target = "BattleUnitModel", method = "OnWaveEnd", kind = "postfix" }
+params = []
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+]
+
+[[hook]]
+timing = "StageEnded"
+summary = "关卡结束。"
+csharp = { target = "BattleUnitModel", method = "OnStageEnd", kind = "postfix" }
+params = ["onClear"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+  { name = "cleared", arg = "onClear", type = "bool", doc = "是否通关（false = 失败/撤退）" },
+]
+
+[[hook]]
+timing = "ShieldReset"
+summary = "护盾被重置。"
+csharp = { target = "BattleUnitModel", method = "OnResetShield", kind = "postfix" }
+params = ["timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "ImmortalityActivated"
+summary = "免死效果被触发。"
+csharp = { target = "BattleUnitModel", method = "OnActivateImmortality", kind = "postfix" }
+params = ["attackerOrNull", "immortalActivator", "timing", "actionOrNull"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "获得免死的单位" },
+  { name = "attacker", arg = "attackerOrNull", type = "unit", optional = true, doc = "来源单位" },
+  { name = "activator", arg = "immortalActivator", type = "unit", optional = true, doc = "触发者" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "ImmortalStateGiven"
+summary = "给单位挂上不死状态。"
+csharp = { target = "BattleUnitModel", method = "OnGiveImmortalState", kind = "postfix" }
+params = ["immortalTaker", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "施加者" },
+  { name = "taker", arg = "immortalTaker", type = "unit", optional = true, doc = "获得不死状态的单位" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "MpDamageSinBuff"
+summary = "罪孽系 Buff 造成的理智伤害。"
+csharp = { target = "BattleUnitModel", method = "OnTakeMpDmg_SinBuff", kind = "postfix" }
+params = ["value", "timing", "keyword"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "受伤单位" },
+  { name = "value", arg = "value", type = "int", doc = "理智伤害值" },
+  { name = "keyword", arg = "keyword", type = "str", doc = "Buff 关键字" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "KilledTargetByAlly"
+summary = "队友击杀了目标（旁观者视角）。"
+csharp = { target = "BattleUnitModel", method = "OnKillTargetByOtherAlly", kind = "postfix" }
+params = ["actionOrNull", "target", "dmgSrcType", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "旁观单位" },
+  { name = "target", arg = "target", type = "unit", optional = true, doc = "被击杀者" },
+  { name = "source", arg = "dmgSrcType", type = "str", doc = "伤害来源枚举名" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "OtherUnitDied"
+summary = "别的单位死亡（旁观者视角）。"
+csharp = { target = "BattleUnitModel", method = "OnDieOtherUnit", kind = "postfix" }
+params = ["killer", "deadUnit", "timing", "dmgSrcType", "keyword"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "旁观单位" },
+  { name = "dead", arg = "deadUnit", type = "unit", optional = true, doc = "死亡单位" },
+  { name = "killer", arg = "killer", type = "unit", optional = true, doc = "击杀者" },
+  { name = "source", arg = "dmgSrcType", type = "str", doc = "伤害来源枚举名" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "OtherUnitBroken"
+summary = "别的单位崩溃（旁观者视角）。"
+csharp = { target = "BattleUnitModel", method = "OnBreakOtherUnit", kind = "postfix" }
+params = ["breakedUnit", "timing", "isBreakForcely"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "旁观单位" },
+  { name = "broken", arg = "breakedUnit", type = "unit", optional = true, doc = "崩溃单位" },
+  { name = "is_forced", arg = "isBreakForcely", type = "bool", doc = "是否强制击溃" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
+
+[[hook]]
+timing = "VibrationExplosion"
+summary = "振动（Vibration）爆炸结算。"
+csharp = { target = "BattleUnitModel", method = "OnVibrationExplosion", kind = "postfix" }
+params = ["giverOrNull", "actionOrNull", "abilitySrc", "timing"]
+payload = [
+  { name = "unit", arg = "self", type = "unit", doc = "单位" },
+  { name = "giver", arg = "giverOrNull", type = "unit", optional = true, doc = "施加者" },
+  { name = "ability_source", arg = "abilitySrc", type = "str", doc = "能力来源枚举名" },
+  { name = "timing", arg = "timing", type = "str", doc = "事件时机枚举名" },
+]
