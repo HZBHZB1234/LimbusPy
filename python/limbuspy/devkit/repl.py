@@ -24,7 +24,7 @@ from ..runtime.errors import LimbusPyError
 
 __all__ = ["Repl", "build_namespace", "main"]
 
-BANNER = "LimbusPy REPL %s (proto %s) - names: bridge, session, game, gb, Modular, help()" % (
+BANNER = "LimbusPy REPL %s (proto %s) - names: lp, bridge, session, game, gb, Modular, help()" % (
     __version__, protocol.PROTOCOL_VERSION,
 )
 
@@ -48,6 +48,17 @@ def build_namespace(bridge: Optional[Bridge], mods_dir: Optional[str] = None) ->
         "modular_dsl": modular_dsl,
     })
 
+    # 作者门面也挂进来：REPL 是最该"随手敲 `lp.unit(201).hp`"的地方。
+    # 门面自己不管理连接，所以这里显式把它接到同一条桥上（和 ModRuntime.start() 一样）。
+    from .. import facade as lp
+
+    if bridge is not None:
+        try:
+            lp.attach(bridge)
+        except Exception:  # noqa: BLE001 - 门面挂不上不该让 REPL 起不来
+            pass
+    namespace["lp"] = lp
+
     try:
         from .. import il2cpp
         namespace["il2cpp"] = il2cpp
@@ -55,6 +66,7 @@ def build_namespace(bridge: Optional[Bridge], mods_dir: Optional[str] = None) ->
         pass
 
     def help_() -> None:
+        print("lp          - author façade (lp.unit / lp.damage / lp.battle / @lp.on_hit)")
         print("bridge      - raw LPCP client (call/get/patch/request)")
         print("session     - limbuspy.game.Session (reflect.get/set/call, snapshot)")
         print("game / gb   - façade objects / battle helpers (gb.current(session))")
@@ -63,6 +75,9 @@ def build_namespace(bridge: Optional[Bridge], mods_dir: Optional[str] = None) ->
         print("il2cpp      - generated index queries (type_names/has_member)")
         print("")
         print("examples:")
+        print("  lp.unit(201).hp_ratio")
+        print("  [(u.instance_id, u.hp) for u in lp.battle().enemies]")
+        print("  lp.add_shield(lp.player(), 8)")
         print("  b = gb.current(session); [(u.instance_id, u.hp) for u in b.units]")
         print("  session.call(b.unit(101), 'GetActivatedBuffModels')")
         print("  Modular(session).run('TIMING:WhenUse/buff(MainTarget,SINKING,1,1)')")

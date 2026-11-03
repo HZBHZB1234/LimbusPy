@@ -59,6 +59,7 @@ class LoadedMod:
     module: Any
     hooks: List[HookEntry] = field(default_factory=list)
     exposed: List[ExposedEntry] = field(default_factory=list)
+    contents: List[Any] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------------------
@@ -250,7 +251,16 @@ def instantiate_mod(module, manifest: ModManifest) -> Mod:
         candidates.append(value)
 
     if not candidates:
-        raise ManifestError("%s: no Mod subclass defined in %s" % (manifest.name, module.__name__))
+        # ``Mod`` 子类从「入场券」降级为「可选道具」：无状态的模组只要在模块顶层用
+        # ``@lp.on_hit`` 之类的门面注册就够了，不需要写类。这里造一个裸实例来承载
+        # 清单信息（配置、状态目录、卸载钩子仍然有地方挂）。
+        instance = Mod()
+        instance.name = manifest.name
+        instance.version = manifest.version or instance.version
+        instance.description = instance.description or manifest.description
+        instance.author = instance.author or manifest.author
+        instance.requires = list(instance.requires or manifest.requires or [])
+        return instance
 
     # Prefer the most derived class when several are exported.
     candidates.sort(key=lambda cls: len(cls.__mro__), reverse=True)
@@ -271,6 +281,81 @@ def instantiate_mod(module, manifest: ModManifest) -> Mod:
 # --------------------------------------------------------------------------------------
 # registration
 # --------------------------------------------------------------------------------------
+
+#: _compile_when 的"拒绝"标记（与"没有谓词"的 None 区分开）。
+_REJECTED = object()
+
+
+def _compile_when(spec, instance, mod_name: str):
+    """把 ``@on(..., when=...)`` 的谓词编译成闭包；失败时**只丢这个钩子**。
+
+    为什么要在这里编译而不是每次回调都解释：谓词求值在游戏主线程的补丁路径上，
+    每帧可能几十次。注册期编译一次，运行期就是一次普通函数调用。
+
+    拒绝需要跨进程往返的谓词（除非显式 ``allow_rpc=True``）—— 那是这个框架
+    唯一的性能退化防线。
+    """
+    when = getattr(spec, "when", None)
+    if when is None:
+        return None
+    try:
+        from ..registration import compile_predicate
+
+        return compile_predicate(when, allow_rpc=bool(getattr(spec, "allow_rpc", False)))
+    except Exception as exc:  # noqa: BLE001 - 一个坏谓词不该拖垮整个 mod
+        problems = getattr(instance, "registration_errors", None)
+        if problems is not None:
+            problems.append("%s: %s" % (mod_name, exc))
+        return _REJECTED
+
+
+def collect_contents(module, mod_name: str):
+    """收集模块里声明的 ``Content`` 子类，回填 ``owner`` 与位序号。
+
+    位序号（``bit``）是"零往返 buff 判断"的核心：注册期分配一次，之后
+    C# 侧按同一份顺序算位图，Python 侧只做按位与。
+
+    **只有 Buff 占位**：位图装的是"某个 Buff 关键字在不在"，被动/技能不参与。
+    这样 ``bit`` 恒等于 ``watch`` 里的下标（见 :func:`..registration.plan_for`）——
+    如果连被动一起编号，``watch`` 里就会出现空位，谓词判断会整体错一位。
+
+    Returns:
+        ``([content_cls...], [problem...])``
+    """
+    from ..registration import Content
+
+    contents = []
+    problems = []
+    seen = set()
+    buffs = 0
+    try:
+        candidates = list(vars(module).items())
+    except TypeError:  # pragma: no cover - 非模块对象
+        return [], []
+
+    for name, value in candidates:
+        if not isinstance(value, type) or not issubclass(value, Content) or value is Content:
+            continue
+        if value.__module__ != getattr(module, "__name__", None):
+            continue
+        if name in seen:
+            continue
+        seen.add(name)
+
+        found = value.validate()
+        if found:
+            problems.extend(found)
+            continue
+
+        value.owner = mod_name
+        if str(getattr(value, "kind", "")) == "buff":
+            value.bit = buffs
+            buffs += 1
+        else:
+            value.bit = -1
+        contents.append(value)
+
+    return contents, problems
 
 
 def _iter_decorated(cls):
@@ -293,7 +378,28 @@ def _iter_decorated(cls):
         yield attribute, function, payload
 
 
-def register_instance(instance: Mod, mod_name: str, registry: Registry, gen: int) -> LoadedMod:
+def _iter_module_decorated(module):
+    """Yields (name, function, decorator_payload) for module-level decorated callables.
+
+    没有这一层，``@lp.on_hit`` 就只能写在类体里 —— 而"十行的 hello world"恰恰是
+    门面最该支持的形状（见 ``python/examples/hello_passive``）。类对象会被跳过，
+    所以 ``Mod`` 子类的成员不会被重复注册。
+    """
+    try:
+        items = list(vars(module).items())
+    except TypeError:  # pragma: no cover - 非模块对象
+        return
+    for name, value in items:
+        if not callable(value) or isinstance(value, type):
+            continue
+        payload = getattr(value, "__limbuspy_hook__", None) or getattr(value, "__limbuspy_expose__", None)
+        if payload is None:
+            continue
+        yield name, value, payload
+
+
+def register_instance(instance: Mod, mod_name: str, registry: Registry, gen: int,
+                      module=None) -> LoadedMod:
     """Fills the registry with everything a mod instance publishes."""
     manifest = ModManifest(name=mod_name, directory="")
     loaded = LoadedMod(manifest=manifest, instance=instance, module=None)
@@ -302,6 +408,9 @@ def register_instance(instance: Mod, mod_name: str, registry: Registry, gen: int
         bound = getattr(instance, attribute)
 
         if isinstance(payload, HookSpec):
+            composed = _compile_when(payload, instance, mod_name)
+            if composed is _REJECTED:
+                continue
             entry = HookEntry(
                 mod=mod_name,
                 name=attribute,
@@ -312,6 +421,8 @@ def register_instance(instance: Mod, mod_name: str, registry: Registry, gen: int
                 filters=payload.filters,
                 sync=payload.sync,
                 fallback=payload.fallback,
+                when=composed,
+                pred=payload.when,
             )
             registry.add_hook(entry)
             loaded.hooks.append(entry)
@@ -336,6 +447,83 @@ def register_instance(instance: Mod, mod_name: str, registry: Registry, gen: int
                 registry.add_table_entry(payload.table, entry)
 
     instance.name = instance.name or mod_name
+
+    # 内容类（Passive / Buff ...）上也可以挂 ``@on_*`` —— 它们是「被动」的载体。
+    # 这些处理器不属于 Mod 子类，所以必须单独扫一遍，否则 Passive 里的回调会静默丢失。
+    for content_cls in getattr(instance, "contents", []) or []:
+        try:
+            content = content_cls()
+        except Exception as exc:  # noqa: BLE001 - 内容实例化失败只影响它自己
+            instance.registration_errors.append(
+                "%s: 无法实例化 %s: %s" % (mod_name, content_cls.__name__, exc))
+            continue
+
+        content_uid = content_cls.uid() or content_cls.__name__
+        for attribute, function, payload in _iter_decorated(content_cls):
+            if not isinstance(payload, HookSpec):
+                continue
+            composed = _compile_when(payload, instance, mod_name)
+            if composed is _REJECTED:
+                continue
+            name = "%s.%s" % (content_uid, attribute)
+            entry = HookEntry(
+                mod=mod_name,
+                name=name,
+                timing=payload.timing,
+                fn=getattr(content, attribute),
+                gen=gen,
+                priority=payload.priority,
+                filters=payload.filters,
+                sync=payload.sync,
+                fallback=payload.fallback,
+                when=composed,
+                pred=payload.when,
+            )
+            registry.add_hook(entry)
+            loaded.hooks.append(entry)
+            if payload.sync:
+                exposed = ExposedEntry(mod=mod_name, name="%s.%s" % (mod_name, name),
+                                       fn=getattr(content, attribute), gen=gen,
+                                       fallback=payload.fallback)
+                registry.expose(exposed)
+                loaded.exposed.append(exposed)
+
+    # 模块顶层声明的 ``@lp.on_hit`` / ``@hook`` / ``@expose``。
+    # 它们的 fn 已经是"只吃 ctx"的形态（``@on`` 的 wrapper 自己能分辨），不需要绑定。
+    if module is not None:
+        for name, function, payload in _iter_module_decorated(module):
+            if isinstance(payload, HookSpec):
+                composed = _compile_when(payload, instance, mod_name)
+                if composed is _REJECTED:
+                    continue
+                entry = HookEntry(
+                    mod=mod_name,
+                    name="%s.%s" % (mod_name, name),
+                    timing=payload.timing,
+                    fn=function,
+                    gen=gen,
+                    priority=payload.priority,
+                    filters=payload.filters,
+                    sync=payload.sync,
+                    fallback=payload.fallback,
+                    when=composed,
+                    pred=payload.when,
+                )
+                registry.add_hook(entry)
+                loaded.hooks.append(entry)
+                if payload.sync:
+                    exposed = ExposedEntry(mod=mod_name, name="%s.%s" % (mod_name, name),
+                                           fn=function, gen=gen, fallback=payload.fallback)
+                    registry.expose(exposed)
+                    loaded.exposed.append(exposed)
+            elif isinstance(payload, ExposeSpec):
+                entry = ExposedEntry(mod=mod_name, name=payload.name, fn=function, gen=gen,
+                                     fallback=payload.fallback)
+                registry.expose(entry)
+                loaded.exposed.append(entry)
+                if payload.table:
+                    registry.add_table_entry(payload.table, entry)
+
     return loaded
 
 
@@ -350,8 +538,16 @@ def load_mod(manifest: ModManifest, registry: Registry, bridge=None, logger=None
 
     instance.bridge = bridge
     instance.logger = logger
+
+    # 内容注册（Buff / Passive / ...）：收集 → 回填 owner/bit → 交给 runtime 发布计划。
+    # 放在 register_instance 之前，因为钩子谓词要用到内容分配好的位序号。
+    contents, problems = collect_contents(module, manifest.name)
+    instance.contents = contents
+    instance.registration_errors = list(getattr(instance, "registration_errors", []) or []) + problems
+
     gen = registry.generation(manifest.name)
-    loaded = register_instance(instance, manifest.name, registry, gen)
+    loaded = register_instance(instance, manifest.name, registry, gen, module=module)
+    loaded.contents = contents
     loaded.module = module
     loaded.manifest = manifest
     return loaded

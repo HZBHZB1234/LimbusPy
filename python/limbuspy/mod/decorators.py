@@ -26,14 +26,19 @@ __all__ = [
 class HookSpec:
     """Metadata attached to a ``@hook`` function."""
 
-    __slots__ = ("timing", "filters", "priority", "sync", "fallback")
+    __slots__ = ("timing", "filters", "priority", "sync", "fallback", "when", "allow_rpc")
 
-    def __init__(self, timing: str, filters: dict, priority: int, sync: bool, fallback: Any) -> None:
+    def __init__(self, timing: str, filters: dict, priority: int, sync: bool, fallback: Any,
+                 when: Any = None, allow_rpc: bool = False) -> None:
         self.timing = timing
         self.filters = filters
         self.priority = priority
         self.sync = sync
         self.fallback = fallback
+        #: 声明式谓词（``limbuspy.registration.Pred``）。注册期编译成闭包，运行期零开销。
+        self.when = when
+        #: 是否允许 ``when`` 里出现需要跨进程往返的谓词（默认拒绝）。
+        self.allow_rpc = allow_rpc
 
 
 class ExposeSpec:

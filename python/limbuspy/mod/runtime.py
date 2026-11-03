@@ -53,6 +53,39 @@ class ReloadResult(dict):
             raise AttributeError(name) from exc
 
 
+def _build_cond(event: dict, round_: int = 0):
+    """为一个事件构造共享的求值上下文（``registration.Cond``）。
+
+    要点：
+    * payload 换成**类型化对象**，这样 ``ev.hp_damage`` 在谓词里能读；
+    * ``mask_victim`` / ``mask_self`` 是 C# 侧预填的位图 —— 谓词判断 buff 只做一次按位与，
+      **0 次跨进程往返**；
+    * ``round`` 优先读 payload（内核给了就用它的），否则用运行时自己数的回合数 ——
+      ``round_()`` / ``once_per_turn()`` / ``cooldown()`` 都靠它，且同样 0 往返。
+    """
+    from ..registration import Cond
+
+    timing = event.get("timing") or ""
+    raw = event.get("payload")
+    payload: Any = raw
+    try:
+        from ..api.hooks import PAYLOAD_BY_TIMING
+
+        payload_cls = PAYLOAD_BY_TIMING.get(timing)
+        if payload_cls is not None and isinstance(raw, dict):
+            payload = payload_cls.from_wire(raw)
+    except Exception:  # noqa: BLE001 - 没有生成物时退化为原始 dict
+        payload = raw
+
+    data = raw if isinstance(raw, dict) else {}
+    return Cond(
+        payload=payload,
+        mask_victim=int(data.get("mask_victim") or 0),
+        mask_self=int(data.get("mask_self") or 0),
+        round_=int(data.get("round") or round_ or 0),
+    )
+
+
 class ModRuntime:
     def __init__(
         self,
@@ -81,6 +114,9 @@ class ModRuntime:
         self._paused = False
         self._watcher = None
         self._closed = False
+        #: 自己数的回合数（``RoundStarted`` 一次 +1，``BattleStarted`` 归零）。
+        #: 供 ``round_()`` / ``once_per_turn()`` / ``cooldown()`` 用 —— 谓词求值不能有往返。
+        self._round = 0
 
         self.counters: Dict[str, int] = {
             "event_batches": 0,
@@ -130,6 +166,15 @@ class ModRuntime:
         ]
         self.register_handlers()
 
+        # 把作者门面（``import limbuspy as lp``）接到这条连接上。门面自己不管连接，
+        # 这样它才能在测试里被换成一个 mock bridge。
+        try:
+            from .. import facade
+
+            facade.attach(self.bridge)
+        except Exception as exc:  # noqa: BLE001 - 门面挂不上不该阻止 mod 加载
+            self._log_error("facade attach failed: %s" % (describe_failure(exc),))
+
         if self.autoload:
             self.load_all()
 
@@ -156,6 +201,12 @@ class ModRuntime:
             return
         self._closed = True
         self.stop_watching()
+        try:
+            from .. import facade
+
+            facade.detach()
+        except Exception:  # noqa: BLE001 - 关闭路径不许抛
+            pass
         for name in list(self.mods):
             loaded = self.mods.get(name)
             if loaded is None:
@@ -210,18 +261,29 @@ class ModRuntime:
             instance.name = instance.name or manifest.name
             instance.bridge = self.bridge
             instance.logger = self._logger
+
+            # 内容注册：先收集并分配位序号，再注册钩子（谓词要用到位序号）
+            from .loader import collect_contents
+
+            contents, problems = collect_contents(module, manifest.name)
+            instance.contents = contents
+            instance.registration_errors = list(instance.registration_errors or []) + problems
+
             gen = self.registry.generation(manifest.name)
-            loaded = register_instance(instance, manifest.name, self.registry, gen)
+            loaded = register_instance(instance, manifest.name, self.registry, gen, module=module)
+            loaded.contents = contents
             loaded.module = module
             loaded.manifest = manifest
             self._restore_state(manifest.name, loaded)
             self.mods[manifest.name] = loaded
+            self._publish_plan(loaded)
             try:
                 loaded.instance.on_load()
             except Exception as exc:  # noqa: BLE001
                 self._log_error("on_load failed for %s: %s" % (manifest.name, describe_failure(exc)))
-            self.log("loaded %s %s (%d hook(s))"
-                     % (manifest.name, loaded.instance.version, len(loaded.hooks)))
+            self.log("loaded %s %s (%d hook(s), %d content(s))"
+                     % (manifest.name, loaded.instance.version, len(loaded.hooks),
+                        len(loaded.contents)))
             return loaded
         except Exception as exc:  # noqa: BLE001
             self.load_errors[manifest.name] = describe_failure(exc)
@@ -235,6 +297,8 @@ class ModRuntime:
             loaded = load_mod(manifest, self.registry, self.bridge, self._logger)
             self._restore_state(manifest.name, loaded)
             self.mods[manifest.name] = loaded
+            # 重载也要重发内容计划：否则谓词的位图在第一次重载之后就永远是 0。
+            self._publish_plan(loaded)
             try:
                 loaded.instance.on_load()
             except Exception as exc:  # noqa: BLE001
@@ -366,6 +430,76 @@ class ModRuntime:
 
     # -- dispatch -----------------------------------------------------------------------
 
+    def _publish_plan(self, loaded) -> None:
+        """把「这个 mod 关心哪些 buff、哪些时点要位图」告诉内核（``content.plan``）。
+
+        这一步是"零往返 buff 判断"的前提：C# 侧按同一份 ``watch`` 顺序算位图，
+        Python 侧只做按位与。老内核没有这个 op 时静默跳过 —— 谓词退化为恒假而不是报错。
+        """
+        self._inject_custom_buffs(loaded)
+
+        try:
+            from ..registration import plan_for
+
+            plan = plan_for(loaded.hooks, loaded.contents)
+            if not plan["watch"]:
+                return
+            payload = {"mod": loaded.manifest.name}
+            payload.update(plan)
+            self.bridge.op_call("content.plan", payload, timeout=2.0)
+            self.counters["content_plans"] = self.counters.get("content_plans", 0) + 1
+        except Exception as exc:  # noqa: BLE001 - 老内核/未实现：静默降级
+            self._log_error("content.plan unavailable for %s: %s"
+                            % (loaded.manifest.name, describe_failure(exc)))
+
+    def _inject_custom_buffs(self, loaded) -> None:
+        """给「没有复用官方 id」的 Buff 做真注入（``content.register``）。
+
+        只处理 ``game_id == 0`` 的内容 —— 复用官方 Buff 的模组一行注入都不用做，
+        这正是我们推荐的默认路线（见 docs/plans/02 §4.6）。
+        """
+        try:
+            from ..registration import CUSTOM_BUFF_BASE_ID
+
+            custom = [c for c in loaded.contents
+                      if str(getattr(c, "kind", "")) == "buff" and not int(getattr(c, "game_id", 0) or 0)]
+            if not custom:
+                return
+
+            payload = {
+                "keywords": [c.keyword() for c in custom],
+                "icons": [str(getattr(c, "icon", "") or "") for c in custom],
+                "icon_root": "",
+            }
+            ok = self.bridge.op_call("content.register", payload, timeout=2.0)
+            if ok:
+                # C# 侧从同一基址顺序分配，所以这里镜像出 game_id ——
+                # 两边都从 CUSTOM_BUFF_BASE_ID 起、按同一顺序、跳过已占用的值。
+                for index, content in enumerate(custom):
+                    content.game_id = CUSTOM_BUFF_BASE_ID + index
+                self.counters["content_injected"] = self.counters.get("content_injected", 0) + len(custom)
+        except Exception as exc:  # noqa: BLE001 - 注入不可用不该让 mod 起不来
+            self._log_error("content.register unavailable for %s: %s"
+                            % (loaded.manifest.name, describe_failure(exc)))
+
+    def _track_round(self, event: dict) -> None:
+        """维护一个**不花往返**的回合数。
+
+        ``RoundStarted`` 的 payload 里没有回合号（它是"这个单位的新回合开始了"），
+        所以这里自己数：一次 ``RoundStarted`` = 一个新回合，``BattleStarted`` 归零。
+        这样 ``round_() >= 3`` / ``once_per_turn()`` / ``cooldown(n)`` 才真的能用。
+        """
+        timing = event.get("timing")
+        if timing == "RoundStarted":
+            self._round += 1
+        elif timing == "BattleStarted":
+            self._round = 0
+        else:
+            return
+        payload = event.get("payload")
+        if isinstance(payload, dict) and payload.get("round"):
+            self._round = int(payload["round"])
+
     def _on_event_batch(self, frame) -> None:
         payload = frame.decode()
         events = payload.get("events") or []
@@ -379,13 +513,29 @@ class ModRuntime:
 
         for index, event in enumerate(events):
             effects: List[dict] = []
+            cond = None  # 惰性：没有任何 hook 声明 when 时，一个 Cond 都不建
             if not self._paused and isinstance(event, dict):
+                self._track_round(event)
                 for entry in self.registry.hooks_for(event.get("timing") or ""):
                     if not entry.matches(event):
                         continue
                     if over_budget:
                         self.counters["hooks_skipped"] += 1
                         continue
+
+                    # 一个事件里 N 个被动只构造 1 个求值上下文（Cond）——
+                    # 位图/回合这些公共输入读一次，N 个谓词复用。
+                    if entry.when is not None:
+                        if cond is None:
+                            cond = _build_cond(event, self._round)
+                        try:
+                            if not entry.when(cond):
+                                self.counters["hooks_skipped"] += 1
+                                continue
+                        except Exception as exc:  # noqa: BLE001 - 谓词出错不该炸整个批次
+                            self.counters["hooks_skipped"] += 1
+                            entry.last_error = describe_failure(exc)
+                            continue
 
                     context = Context(
                         bridge=self.bridge,
@@ -498,6 +648,7 @@ class ModRuntime:
             "counters": dict(self.counters),
             "hooks": hooks,
             "paused": self._paused,
+            "round": self._round,
             "watching": self._watcher is not None,
         }
 

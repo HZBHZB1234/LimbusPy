@@ -40,7 +40,13 @@ class Mod:
         self.logger = None
         #: Patch ids this mod installed; removed automatically before a reload.
         self._patches: List[str] = []
+        #: 本 mod 注册的 ``Content`` 子类（Buff / Passive / ...），由 loader 回填。
+        self.contents: List[Any] = []
+        #: 注册期发现的问题（非法内容、被拒绝的谓词）。只跳过出问题的项，不拖垮整个 mod。
+        self.registration_errors: List[str] = []
         self._session = None
+        self._ops_session = None
+        self._ops_facade = None
 
     # -- lifecycle ----------------------------------------------------------------------
 
@@ -59,17 +65,45 @@ class Mod:
 
     # -- helpers ------------------------------------------------------------------------
 
+    def _new_session(self):
+        """hook 之外的会话：**关掉缓存**（读到的是当次真值）。"""
+        if self.bridge is None:
+            return None
+        try:
+            from ..game import Session
+
+            return Session(self.bridge, use_cache=False)
+        except Exception:  # noqa: BLE001
+            return None
+
     @property
     def session(self):
-        """A game façade for setup work outside hooks (hooks get ``ctx.session`` instead)."""
-        if self._session is None and self.bridge is not None:
-            try:
-                from ..game import Session
+        """hook 之外的只读/诊断入口（``on_load``、后台线程、REPL 式操作）。
 
-                self._session = Session(self.bridge)
-            except Exception:  # noqa: BLE001
-                self._session = None
+        **无缓存**：``Mod.session`` 活在整个 mod 生命周期上，如果缓存读值，第二回合读到的还是
+        第一回合的 HP。hook 里请用 ``ctx.session``（每次回调新建、缓存只活一次回调）。
+        """
+        if self._session is None:
+            self._session = self._new_session()
         return self._session
+
+    @property
+    def ops(self):
+        """A 层（封装 op）入口。
+
+        hook 里请用 ``ctx.ops``（绑在本次回调的 fresh session 上）；``self.ops`` 用于
+        ``on_load`` / 后台线程等**没有 ctx** 的场景。op 本身无状态，且这里刻意用**无缓存**
+        会话，避免 A 层入口继承 B 层读缓存的语义。
+        """
+        if self._ops_facade is None:
+            if self._ops_session is None:
+                self._ops_session = self._new_session()
+            if self._ops_session is None:
+                raise RuntimeError("mod %r 还没有连接到内核，拿不到 ops" % (self.name or "?",))
+            from ..api.ops import Ops
+
+            self._ops_facade = Ops(self._ops_session)
+        return self._ops_facade
 
     # -- harmony patches ----------------------------------------------------------------
 

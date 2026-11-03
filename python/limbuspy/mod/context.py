@@ -18,7 +18,7 @@ class Context:
     """
 
     __slots__ = ("bridge", "mod", "timing", "gen", "event", "target", "snapshot", "effects",
-                 "state", "session", "modular", "_logger")
+                 "state", "session", "modular", "payload", "_logger")
 
     def __init__(self, bridge: Bridge, mod: str, timing: str = "", gen: int = 1,
                  event: Optional[dict] = None, state: Optional[dict] = None,
@@ -30,6 +30,8 @@ class Context:
         self.event = dict(event or {})
         self.target = _extract_target(self.event)
         self.snapshot = self.event.get("snapshot")
+        #: A 层时机的归一化 payload（C# 侧已拆好参数）；高级层事件里没有这个键。
+        self.payload = self.event.get("payload")
         self.effects: List[dict] = []
         self.state = state if state is not None else {}
         #: Game façade bound to this callback. A fresh session per callback means the value cache
@@ -38,6 +40,21 @@ class Context:
         #: One-way compatibility layer (``ctx.modular.run("TIMING:WhenUse/...")``).
         self.modular = _make_modular(self.session)
         self._logger = logger
+
+    # -- A 层（封装 op） ----------------------------------------------------------------
+
+    @property
+    def ops(self):
+        """A 层入口：``ctx.ops.unit.damage(ctx.payload.unit, 5)``。"""
+        if self.session is None:
+            raise RuntimeError("没有可用的 session（桥未连接）")
+        return self.session.ops
+
+    def op(self, name: str, **args: Any) -> Any:
+        """直接调一个 op（带名字，属于半高级用法；优先用 ``ctx.ops``）。"""
+        if self.session is None:
+            raise RuntimeError("没有可用的 session（桥未连接）")
+        return self.session.op(name, args)
 
     # -- reflection ---------------------------------------------------------------------
 

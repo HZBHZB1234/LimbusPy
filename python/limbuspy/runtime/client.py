@@ -52,7 +52,7 @@ class BridgeCounters:
     """Cheap traffic counters surfaced through ``STATS`` and ``limbuspy doctor``."""
 
     __slots__ = ("frames_sent", "frames_received", "bytes_sent", "bytes_received", "calls",
-                 "timeouts", "errors", "reconnects")
+                 "op_calls", "timeouts", "errors", "reconnects")
 
     def __init__(self) -> None:
         self.frames_sent = 0
@@ -60,6 +60,7 @@ class BridgeCounters:
         self.bytes_sent = 0
         self.bytes_received = 0
         self.calls = 0
+        self.op_calls = 0
         self.timeouts = 0
         self.errors = 0
         self.reconnects = 0
@@ -71,6 +72,7 @@ class BridgeCounters:
             "bytes_sent": self.bytes_sent,
             "bytes_received": self.bytes_received,
             "calls": self.calls,
+            "op_calls": self.op_calls,
             "timeouts": self.timeouts,
             "errors": self.errors,
             "reconnects": self.reconnects,
@@ -293,6 +295,20 @@ class Bridge:
         result = self.request(
             MsgType.CALL,
             {"target": target or "", "method": method or "", "args": list(args)},
+            timeout=timeout,
+        )
+        return result.get("value")
+
+    def op_call(self, op: str, args: Optional[dict] = None, timeout: float = DEFAULT_TIMEOUT) -> Any:
+        """调用一个 A 层封装 op（命名参数、内核原生实现、零反射）。
+
+        与 :meth:`call` 分开计数：``counters.op_calls`` 是 A 层成本，``counters.calls`` 是
+        B 层（反射）成本 —— 让"这个 mod 到底花了几次 crossing"可测量。
+        """
+        self.counters.op_calls += 1
+        result = self.request(
+            MsgType.OPCALL,
+            {"op": op, "args": dict(args or {})},
             timeout=timeout,
         )
         return result.get("value")

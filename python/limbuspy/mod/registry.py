@@ -18,11 +18,11 @@ class HookEntry:
     """One ``@hook`` registration."""
 
     __slots__ = ("mod", "name", "timing", "fn", "gen", "priority", "filters", "sync", "fallback",
-                 "calls", "failures", "last_error")
+                 "when", "pred", "calls", "failures", "last_error")
 
     def __init__(self, mod: str, name: str, timing: str, fn: Callable, gen: int,
                  priority: int = 0, filters: Optional[dict] = None, sync: bool = False,
-                 fallback: Any = None) -> None:
+                 fallback: Any = None, when: Any = None, pred: Any = None) -> None:
         self.mod = mod
         self.name = name
         self.timing = timing
@@ -32,6 +32,11 @@ class HookEntry:
         self.filters = dict(filters or {})
         self.sync = sync
         self.fallback = fallback
+        #: 编译好的谓词（``Callable[[Cond], bool]``）或 ``None``。
+        #: **注意不能塞进 ``filters``**：那是个"字段值相等"的比较表，谓词对象塞进去会恒假。
+        self.when = when
+        #: 编译前的原始谓词（发送位图计划时要用它的 bits()）
+        self.pred = pred
         self.calls = 0
         self.failures = 0
         self.last_error: Optional[str] = None
@@ -43,13 +48,19 @@ class HookEntry:
 
         The in-game kernel can filter earlier (Modular style) but applying them here keeps the
         semantics identical for recorded/replayed events and for the mock kernel.
+
+        先看事件顶层，再看 ``payload`` 里 —— 顶层键是高级层（``@hook(head=True)``）的写法，
+        payload 键是 A 层（``@lp.on_hit(head=True)``）的写法。两者都要能用，否则
+        "看起来加了过滤、其实这个时点永远不触发"。
         """
         if event.get("timing") != self.timing:
             return False
+        payload = event.get("payload")
+        source = payload if isinstance(payload, dict) else {}
         for key, expected in self.filters.items():
             if expected is None:
                 continue
-            actual = event.get(key)
+            actual = event.get(key, source.get(key))
             if key == "keyword":
                 keywords = actual if isinstance(actual, (list, tuple)) else [actual]
                 if expected not in keywords:

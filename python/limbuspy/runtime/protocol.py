@@ -50,6 +50,12 @@ class MsgType(IntEnum):
     DOCTOR = 0x14
     BYE = 0x15
     SNAPSHOT = 0x16
+    #: 批量操作（v1.1）：一次往返执行 N 个 reflect.get/set/invoke。
+    #: ``{id, ops: [[target, method, args[]], ...]}`` → ``CALLRESULT{value: [逐项结果]}``。
+    BATCH = 0x17
+    #: A 层封装 op（v1.1）：``{id, op:"unit.damage", args{...}}`` → ``CALLRESULT{value}``。
+    #: 与 CALL 的区别：op 是**命名参数**、**零反射**、语义在内核原生实现里。
+    OPCALL = 0x18
 
 
 #: Messages that carry an ``id`` and expect a CALLRESULT back (docs §3).
@@ -63,6 +69,8 @@ REQUEST_MESSAGES = frozenset(
         MsgType.STATE,
         MsgType.DOCTOR,
         MsgType.SNAPSHOT,
+        MsgType.BATCH,
+        MsgType.OPCALL,
     }
 )
 
@@ -96,6 +104,10 @@ class Caps:
     MODULAR_RUN = "modular.run"
     HOT_RELOAD = "hot.reload"
     BUDGET_FRAME = "budget.frame"
+    #: 内核支持 BATCH（一次往返 N 个操作）。见 docs/05-typed-api.md §5.2。
+    BATCH_V1 = "batch.v1"
+    #: 内核支持 A 层封装 op（数量与版本见 DOCTOR/HELLO 的 manifest）。
+    OPS_V1 = "ops.v1"
 
 
 PROTOCOL_VERSION = "1.1"

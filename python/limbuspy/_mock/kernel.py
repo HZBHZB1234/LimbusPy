@@ -64,6 +64,7 @@ class MockKernel:
         transport: Transport,
         handlers: Optional[Dict[str, Callable[..., Any]]] = None,
         caps: Optional[List[str]] = None,
+        ops: Any = None,
         game_build: str = "mock",
         game_version: str = "1.84.0-mock",
         battle: Optional[dict] = None,
@@ -75,7 +76,12 @@ class MockKernel:
             protocol.Caps.REFLECT_MANAGED,
             protocol.Caps.HANDLE_ARENA,
             protocol.Caps.HOT_RELOAD,
+            protocol.Caps.BATCH_V1,
         ])
+        if ops is not None:
+            self._caps.append(protocol.Caps.OPS_V1)
+        #: A 层 op 的参考实现（MockOps 或 {name: callable(args)}）
+        self.ops = ops
         self._game_build = game_build
         self._game_version = game_version
         #: What SNAPSHOT returns (see limbuspy.game.battle).
@@ -87,6 +93,9 @@ class MockKernel:
         self.bridge.on_request(MsgType.PATCH_ADD, self._handle_patch_add)
         self.bridge.on_request(MsgType.PATCH_DEL, self._handle_patch_del)
         self.bridge.on_request(MsgType.SNAPSHOT, self._handle_snapshot)
+        self.bridge.on_request(MsgType.BATCH, self._handle_batch)
+        if ops is not None:
+            self.bridge.on_request(MsgType.OPCALL, self._handle_opcall)
         self.bridge.on(MsgType.BYE, self._on_bye)
         self.bridge.on(MsgType.LOG, self._on_log)
         self.logs: List[dict] = []
@@ -103,6 +112,7 @@ class MockKernel:
             "game_build": self._game_build,
             "game_version": self._game_version,
             "caps": self._caps,
+            "ops": self.ops_manifest(),
         })
         frame = self.bridge.wait_for(MsgType.READY, timeout=timeout)
         self.ready = frame.decode()
@@ -194,6 +204,68 @@ class MockKernel:
         del self.patches[patch_id]
         return True
 
+    # -- A 层 op ------------------------------------------------------------------------
+
+    def ops_manifest(self) -> dict:
+        """与 ``api/_contract_manifest.json`` 对齐的清单（没有就用 mock 实现的方法名）。"""
+        try:
+            import json, os
+
+            path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "api", "_contract_manifest.json")
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict) and data.get("ops"):
+                return {"version": data.get("version", "1.0"), "ops": data["ops"]}
+        except (OSError, ValueError):
+            pass
+        ops = []
+        for name in dir(self.ops or object()):
+            if name.startswith("op_"):
+                ops.append({"name": name[3:].replace("_", ".")})
+        return {"version": "1.0", "ops": ops}
+
+    def _handle_opcall(self, payload: dict) -> Any:
+        name = payload.get("op") or ""
+        args = payload.get("args") or {}
+        if not isinstance(args, dict):
+            raise BridgeError(protocol.ErrorCode.MARSHAL, "op args must be an object")
+        if self.ops is None:
+            raise BridgeError(protocol.ErrorCode.UNSUPPORTED, "mock kernel has no ops")
+        dispatch = getattr(self.ops, "dispatch", None)
+        try:
+            if dispatch is not None:
+                return dispatch(name, args)
+            handler = self.ops.get(name) if hasattr(self.ops, "get") else None
+            if handler is None:
+                raise KeyError(name)
+            return handler(args)
+        except KeyError as exc:
+            raise BridgeError(protocol.ErrorCode.UNSUPPORTED,
+                              "no op %r (mock)" % (name,)) from exc
+        except BridgeError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise BridgeError(protocol.ErrorCode.SCRIPT, "%s: %s" % (type(exc).__name__, exc)) from exc
+
+    def _handle_batch(self, payload: dict) -> list:
+        """``ops: [[target, method, args], ...]`` → 逐项结果（与内核 batch.v1 同形）。"""
+        results = []
+        for entry in payload.get("ops") or []:
+            try:
+                target, method, args = entry[0], entry[1], list(entry[2] or [])
+                handler = self._handlers.get("%s::%s" % (target, method)) or self._handlers.get(method)
+                if handler is None:
+                    raise BridgeError(protocol.ErrorCode.NOT_FOUND, "no mock handler for %r" % (method,))
+                results.append({"ok": True, "value": handler(*args)})
+            except BridgeError as exc:
+                results.append({"ok": False, "err": protocol.err(exc.code, exc.message)})
+            except Exception as exc:  # noqa: BLE001
+                results.append({"ok": False, "err": protocol.err(
+                    protocol.ErrorCode.SCRIPT, "%s: %s" % (type(exc).__name__, exc))})
+        return results
+
     def _handle_doctor(self, payload: dict) -> dict:
         """Canned kernel self-report, shaped like KernelHost.BuildDoctor()."""
         return {
@@ -211,6 +283,7 @@ class MockKernel:
             "globals": [],
             "handles": {"live": 0, "pinned": 0, "allocated": 0, "released": 0, "stale": 0, "dead": 0},
             "patches": {"patches": len(self.patches), "bindings": list(self.patches.values())},
+            "ops": self.ops_manifest(),
             "dispatcher": {"posted": 0, "executed": 0, "faulted": 0, "pending": 0,
                            "nested_pumps": 0, "nested_refused": 0, "owner_thread": 1},
             "counters": {},

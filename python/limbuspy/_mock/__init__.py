@@ -3,5 +3,6 @@
 from __future__ import annotations
 
 from .kernel import MockHandles, MockKernel
+from .ops import MockBattle, MockOps, MockUnit
 
-__all__ = ["MockHandles", "MockKernel"]
+__all__ = ["MockHandles", "MockKernel", "MockBattle", "MockOps", "MockUnit"]
