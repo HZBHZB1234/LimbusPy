@@ -34,6 +34,10 @@ namespace LimbusPy.Bridge.Core.Protocol
         public const string ModularRun = "modular.run";
         public const string HotReload = "hot.reload";
         public const string BudgetFrame = "budget.frame";
+        /// <summary>批量读：一次往返 N 个操作。</summary>
+        public const string BatchV1 = "batch.v1";
+        /// <summary>A 层封装 op（数量与版本见 HELLO 的 ops 清单）。</summary>
+        public const string OpsV1 = "ops.v1";
     }
 
     public static class ProtocolInfo

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using LimbusPy.Bridge.Core.Bridge;
 using LimbusPy.Bridge.Core.Diagnostics;
 using LimbusPy.Bridge.Core.Framing;
+using LimbusPy.Bridge.Core.Ops;
 using LimbusPy.Bridge.Core.Protocol;
 using LimbusPy.Bridge.Core.Reflect;
 using LimbusPy.Bridge.Core.Transport;
@@ -21,7 +22,7 @@ namespace LimbusPy.Bridge.Runtime
     /// thread through <see cref="MainThreadDispatcher"/>; replies are written straight from that
     /// callback (sending never blocks on the game).
     /// </summary>
-    internal sealed class KernelHost : IFrameHandler
+    internal sealed class KernelHost : IFrameHandler, IOpsHost
     {
         private readonly BridgeSettings _settings;
         private readonly Action<string> _log;
@@ -33,6 +34,11 @@ namespace LimbusPy.Bridge.Runtime
         private readonly GlobalRegistry _globals;
         private readonly HarmonyPatchHub _patches;
         private readonly SnapshotService _snapshot;
+        private readonly IOpsProvider _ops;
+        private readonly RequestRouter _router;
+        private readonly object _eventLock = new object();
+        private readonly System.Collections.Generic.List<object> _eventSink =
+            new System.Collections.Generic.List<object>();
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
         /// <summary>Re-entry guard for kernel->Python->kernel->... cycles (protocol §6.2).</summary>
@@ -55,7 +61,8 @@ namespace LimbusPy.Bridge.Runtime
             InteropTypeIndex types,
             GlobalRegistry globals,
             HarmonyPatchHub patches,
-            SnapshotService snapshot)
+            SnapshotService snapshot,
+            IOpsProvider ops = null)
         {
             _settings = settings;
             _log = log;
@@ -67,6 +74,13 @@ namespace LimbusPy.Bridge.Runtime
             _globals = globals;
             _patches = patches;
             _snapshot = snapshot;
+            _ops = ops;
+            _router = new RequestRouter(invoker)
+            {
+                Ops = ops,
+                SnapshotProvider = snapshot != null ? (Func<Dictionary<string, object>>)(() => snapshot.Capture()) : null,
+            };
+            if (ops != null) ops.Attach(this, store);
             if (_patches != null) _patches.Dispatch = DispatchToPython;
         }
 
@@ -92,6 +106,15 @@ namespace LimbusPy.Bridge.Runtime
             catch
             {
                 // ignore
+            }
+
+            try
+            {
+                _ops?.Shutdown();
+            }
+            catch
+            {
+                // 卸载尽力而为
             }
 
             var peer = _peer;
@@ -185,11 +208,13 @@ namespace LimbusPy.Bridge.Runtime
 
             try
             {
-                await peer.SendAsync(MsgType.Hello, Lpcp.Hello(
+                var hello = Lpcp.Hello(
                     Plugin.Version,
                     _settings.StubsBuild.Value ?? string.Empty,
                     _gameVersion + "/" + _unityVersion,
-                    AdvertisedCaps()), cancellationToken).ConfigureAwait(false);
+                    AdvertisedCaps());
+                if (_ops != null) hello["ops"] = _ops.Manifest();
+                await peer.SendAsync(MsgType.Hello, hello, cancellationToken).ConfigureAwait(false);
 
                 Frame readyFrame;
                 try
@@ -252,7 +277,9 @@ namespace LimbusPy.Bridge.Runtime
                 Caps.HandleArena,
                 Caps.HandlePinned,
                 Caps.BudgetFrame,
+                Caps.BatchV1,
             };
+            if (_ops != null && _ops.Available) caps.Add(Caps.OpsV1);
             if (_snapshot != null) caps.Add(Caps.SnapshotV1);
             if (_patches != null) caps.Add(Caps.PatchTable);
             return caps.ToArray();
@@ -336,28 +363,23 @@ namespace LimbusPy.Bridge.Runtime
 
         private Dictionary<string, object> Dispatch(MsgType type, Dictionary<string, object> request, long id)
         {
+            // CALL（含 reflect.* / BATCH / OPCALL / SNAPSHOT）走 Core 里的统一调度器：
+            // 测试 harness 用同一份代码，杜绝"harness 绿、真机坏"。
+            var routed = _router.Dispatch(type, request, id);
+            if (routed != null)
+            {
+                if (type == MsgType.Call) Counters.Increment("call");
+                else if (type == MsgType.OpCall) Counters.Increment("opcall");
+                else if (type == MsgType.Batch) Counters.Increment("batch");
+                else if (type == MsgType.Snapshot) Counters.Increment("snapshot");
+                return routed;
+            }
+
             switch (type)
             {
-                case MsgType.Call:
-                {
-                    var target = request.TryGetValue("target", out var targetValue) ? targetValue : null;
-                    var method = Lpcp.GetString(request, "method", string.Empty);
-                    var args = Lpcp.GetArray(request, "args");
-                    var value = _invoker.Invoke(target, method, args);
-                    Counters.Increment("call");
-                    return Lpcp.OkResult(id, value);
-                }
 
                 case MsgType.Doctor:
                     return Lpcp.OkResult(id, BuildDoctor());
-
-                case MsgType.Snapshot:
-                {
-                    if (_snapshot == null) throw LpcpFault.Unsupported("snapshot service is not available");
-                    var battle = _snapshot.Capture();
-                    Counters.Increment("snapshot");
-                    return Lpcp.OkResult(id, battle);
-                }
 
                 case MsgType.Stats:
                     return Lpcp.OkResult(id, BuildStats());
@@ -468,6 +490,102 @@ namespace LimbusPy.Bridge.Runtime
                 _syncDepth--;
             }
         }
+
+        // -- IOpsHost（A 层用）---------------------------------------------------------------
+
+        /// <summary>把游戏对象/值转成 wire 形式。</summary>
+        public object Wire(object value) => value == null ? null : _marshaller.ToWire(value);
+
+        /// <summary>把一个时机事件排进本帧的 EVENTBATCH（主线程调用）。</summary>
+        public void EmitEvent(Dictionary<string, object> evt)
+        {
+            if (evt == null) return;
+            lock (_eventLock) _eventSink.Add(evt);
+        }
+
+        /// <summary>
+        /// 同步问 Python 要一个值（改值型时点专用）。
+        ///
+        /// 与 <see cref="DispatchToPython"/> 同一套约束：主线程、deadline、拒绝重入、fail-open。
+        /// 区别只在于它由 A 层（<c>LimbusPy.Ops</c> 的 prefix 补丁）调用，而不是 B 层补丁表。
+        /// 失败一律返回 null —— 调用方必须把 null 当成"不改"。
+        /// </summary>
+        public object CallPython(string fn, Dictionary<string, object> context)
+        {
+            var peer = _peer;
+            if (peer == null || peer.IsClosed || string.IsNullOrEmpty(fn)) return null;
+            if (_syncDepth >= 1)
+            {
+                Counters.Increment("ops.sync_reentry_refused");
+                return null;
+            }
+
+            var timeoutMs = _patches == null ? 20 : Math.Max(1, _patches.TimeoutMs);
+            _syncDepth++;
+            try
+            {
+                var requestId = peer.RequestStart(MsgType.SyncCall, Lpcp.Map(
+                    "fn", fn,
+                    "ctx", context ?? Lpcp.Map(),
+                    "deadline_ms", (long)timeoutMs));
+                Counters.Increment("ops.sync_call");
+                var completed = peer.TryWaitResult(requestId, TimeSpan.FromMilliseconds(timeoutMs),
+                    () => _dispatcher.Drain(32, TimeSpan.FromMilliseconds(2)), out var reply);
+                if (!completed)
+                {
+                    Counters.Increment("ops.sync_timeout");
+                    return null;
+                }
+
+                if (!Lpcp.GetBool(reply, "ok"))
+                {
+                    Counters.Increment("ops.sync_error");
+                    return null;
+                }
+
+                return reply.TryGetValue("value", out var value) ? value : null;
+            }
+            catch (Exception ex)
+            {
+                Counters.Increment("ops.sync_error");
+                Trace.Add("ops sync call failed: " + ex.GetType().Name + ": " + ex.Message);
+                return null;
+            }
+            finally
+            {
+                _syncDepth--;
+            }
+        }
+
+        /// <summary>帧末：让 A 层把攒下的时机事件入队，然后一次 EVENTBATCH 发出去。</summary>
+        public void TickOps()
+        {
+            try
+            {
+                _ops?.Tick();
+            }
+            catch (Exception ex)
+            {
+                Trace.Add("ops tick failed: " + ex.Message);
+            }
+
+            object[] events;
+            lock (_eventLock)
+            {
+                if (_eventSink.Count == 0) return;
+                events = _eventSink.ToArray();
+                _eventSink.Clear();
+            }
+
+            var peer = _peer;
+            if (peer == null || peer.IsClosed) return;
+            ReplyLater(peer, MsgType.EventBatch, Lpcp.Map(
+                "seq", (long)Interlocked.Increment(ref _eventSeq),
+                "frame", (long)PumpBehaviour.Frame,
+                "events", events));
+        }
+
+        private long _eventSeq;
 
         private object SafeWire(object value)
         {

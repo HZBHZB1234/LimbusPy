@@ -31,6 +31,10 @@ namespace LimbusPy.Bridge.Core.Framing
         Doctor = 0x14,
         Bye = 0x15,
         Snapshot = 0x16,
+        /// <summary>批量操作：一次往返执行 N 个 reflect.get/set/invoke。</summary>
+        Batch = 0x17,
+        /// <summary>A 层封装 op：命名参数、零反射、内核原生实现。</summary>
+        OpCall = 0x18,
     }
 
     public readonly struct Frame

@@ -95,10 +95,24 @@ namespace LimbusPy.Bridge
                 TimeoutMs = Math.Max(1, Settings.SyncCallTimeoutMs.Value),
             };
 
+            // 4.5 A 层（封装 API）：独立程序集，加载失败只降级、不影响内核。
+            var ops = OpsLoader.Load(LogLine);
+            if (ops != null)
+            {
+                try
+                {
+                    ops.RegisterGlobals(Globals);
+                }
+                catch (Exception ex)
+                {
+                    Log.LogWarning("ops global registration failed: " + ex.Message);
+                }
+            }
+
             // 5. Battle snapshot service + bridge host.
             var snapshot = new SnapshotService(Globals, Marshaller, Store);
             Host = new KernelHost(Settings, LogLine, Dispatcher, Marshaller, Invoker, Store, Types, Globals,
-                Patches, snapshot);
+                Patches, snapshot, ops);
             Host.SetGameInfo(SafeApplicationVersion(), SafeUnityVersion());
             Host.Start();
 
@@ -106,6 +120,9 @@ namespace LimbusPy.Bridge
             var frame = 0;
             PumpBehaviour.OnTick = () =>
             {
+                // A 层时机事件：每帧一次 EVENTBATCH（推送模型，零 crossing）。
+                Host?.TickOps();
+
                 frame++;
                 if (frame % 120 != 0) return;
                 try
