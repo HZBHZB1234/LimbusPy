@@ -309,8 +309,13 @@ def scenario_scribe() -> Result:
 # 7. A 层 vs B 层 —— 成本对照
 # --------------------------------------------------------------------------------------
 def scenario_contrast() -> Result:
-    """同一件事的两种写法：门面 1 次往返拿快照 vs 反射逐字段读。"""
-    from limbuspy.api import bindings
+    """同一件事的两种写法：门面 1 次往返拿快照 vs 反射逐字段读。
+
+    B 层用通用的 ``Session.call``（反射）而不是生成的 ``bindings.BattleUnitModel``：
+    生成绑定需要真实 dump.cs（约 2 MB 产物，被 .gitignore 排除），干净检出的 CI 里
+    并不存在。用 ``call`` 走的是**同一条 B 层反射路径**，成本结论不变，但示例在
+    任何环境都能跑 —— 示例跑不起来就等于没写。
+    """
     from limbuspy.game.session import Session
 
     harness = _harness("burst_on_hit")
@@ -327,8 +332,12 @@ def scenario_contrast() -> Result:
 
         fresh = Session(harness.bridge)               # 新 session：避免 B 层缓存干扰计数
         before = harness.bridge.counters.frames_sent
-        bound = bindings.BattleUnitModel(fresh, ref)
-        b_values = (bound.hp, bound.max_hp, bound.mp, bound.instance_id)
+        b_values = (
+            fresh.read(ref, "Hp"),                    # 每字段一次往返（reflect.get）
+            fresh.read(ref, "MaxHp"),
+            fresh.read(ref, "Mp"),
+            fresh.read(ref, "InstanceID"),
+        )
         b_crossings = harness.bridge.counters.frames_sent - before
 
         return {
