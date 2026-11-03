@@ -4,7 +4,8 @@ name: ci
 # C# 内核与一致性 harness 需要游戏本体的 interop 程序集，跑不进公共 CI（见 README「从源码构建」）。
 on:
   push:
-    branches: [main]
+    # 所有分支都跑：分支上先验证，再合进 main，避免"合并后才发现红"。
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 
