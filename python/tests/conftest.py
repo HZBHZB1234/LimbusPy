@@ -26,14 +26,29 @@ def make_transport_pair():
 
     left_file = left.makefile("rwb", buffering=0)
     right_file = right.makefile("rwb", buffering=0)
-    # socket.makefile() bumps _io_refs, so the real fd only closes once the file is closed AND
-    # the socket object is closed. Closing the socket object here is deferred, not immediate:
-    # it guarantees the peer sees EOF when the transport closes its file.
-    left.close()
-    right.close()
+
+    # socket.makefile() bumps _io_refs, so the real fd only closes once both the file and the
+    # socket object are closed. We deliberately keep the socket objects alive and expose them
+    # through on_shutdown: closing a socket.makefile() does NOT wake a reader blocked in
+    # read() on POSIX (the fd is still referenced by the in-flight syscall), which would leave
+    # Bridge's reader thread parked forever. shutdown(SHUT_RDWR) both unblocks our own reader
+    # and sends FIN so the peer sees EOF.
+    def _shutdown(sock):
+        def run():
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+        return run
+
     return (
-        FileTransport(left_file, "pair-a"),
-        FileTransport(right_file, "pair-b"),
+        FileTransport(left_file, "pair-a", on_shutdown=_shutdown(left)),
+        FileTransport(right_file, "pair-b", on_shutdown=_shutdown(right)),
     )
 
 

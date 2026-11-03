@@ -18,6 +18,12 @@ jobs:
         os: [windows-latest, ubuntu-latest]
         python: ["3.11", "3.13"]
 
+    # 脚本与测试会打印中文。Windows runner 的 stdout 默认走 cp1252，直接 print 中文会抛
+    # UnicodeEncodeError 把作业判红；强制 UTF-8 才能让两边行为一致。
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -33,5 +39,6 @@ jobs:
       - name: unit tests
         run: python -m pytest python/tests -q
 
-      - name: example mod (end-to-end, mock kernel)
-        run: python examples/run_sinking_tide.py --quiet
+      # 全部示例（9 场景 / 62 断言），不只是深水区那一个：示例是代码，必须一直被跑。
+      - name: examples (end-to-end, mock kernel)
+        run: python python/examples/run_examples.py --quiet

@@ -56,11 +56,19 @@ class Transport:
 
 
 class FileTransport(Transport):
-    """Transport over a file-like object (pipes opened via ``open()``, socket makefiles)."""
+    """Transport over a file-like object (pipes opened via ``open()``, socket makefiles).
 
-    def __init__(self, fileobj, name: str = "<file>", on_close=None) -> None:
+    ``on_shutdown`` exists for a portability trap: on POSIX, closing a ``socket.makefile()``
+    does **not** wake another thread blocked in ``read()`` on that same socket (the fd stays
+    referenced by the in-flight syscall), so ``close()`` alone can leave a reader thread
+    parked forever. Passing a callable that performs ``socket.shutdown(SHUT_RDWR)`` makes
+    ``close()`` unblock the reader first. Windows does not need it, but it is harmless there.
+    """
+
+    def __init__(self, fileobj, name: str = "<file>", on_close=None, on_shutdown=None) -> None:
         self._file = fileobj
         self._on_close = on_close
+        self._on_shutdown = on_shutdown
         self.name = name
         self._closed = False
 
@@ -110,6 +118,12 @@ class FileTransport(Transport):
         if self._closed:
             return
         self._closed = True
+        # 先中断底层 socket，把阻塞在 read() 的读线程唤醒（POSIX 必需，见类注释）。
+        if self._on_shutdown is not None:
+            try:
+                self._on_shutdown()
+            except Exception:  # noqa: BLE001 - best effort
+                pass
         try:
             self._file.close()
         except Exception:  # noqa: BLE001 - best effort
